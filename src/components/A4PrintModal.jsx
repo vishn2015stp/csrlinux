@@ -131,22 +131,6 @@ export default function A4PrintModal({
                     >
                         💼 Proforma Invoice (GST)
                     </button>
-                    <button
-                        type="button"
-                        onClick={() => setDocType('tax_invoice')}
-                        style={{
-                            background: docType === 'tax_invoice' ? 'var(--accent)' : 'rgba(255,255,255,0.08)',
-                            color: docType === 'tax_invoice' ? '#000' : '#e2e8f0',
-                            border: '1px solid ' + (docType === 'tax_invoice' ? 'var(--accent)' : '#475569'),
-                            padding: '6px 14px',
-                            borderRadius: '4px',
-                            cursor: 'pointer',
-                            fontWeight: '600',
-                            fontSize: '0.85rem'
-                        }}
-                    >
-                        🧾 Tax Invoice
-                    </button>
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -232,12 +216,10 @@ export default function A4PrintModal({
                             }}>
                                 {docType === 'service_report' && 'SERVICE REPORT'}
                                 {docType === 'proforma' && 'PROFORMA INVOICE'}
-                                {docType === 'tax_invoice' && 'TAX INVOICE'}
                             </div>
                             <div style={{ fontSize: '10.5px', color: '#64748b', marginTop: '3px' }}>
                                 {docType === 'proforma' && '(ESTIMATE / QUOTATION)'}
                                 {docType === 'service_report' && '(WORK & TESTING SUMMARY)'}
-                                {docType === 'tax_invoice' && '(ORIGINAL FOR RECIPIENT)'}
                             </div>
                         </div>
                     </div>
@@ -256,7 +238,7 @@ export default function A4PrintModal({
                     fontSize: '11.5px'
                 }}>
                     <div>
-                        <div><b>{docType === 'proforma' ? 'Proforma Invoice #' : docType === 'tax_invoice' ? 'Tax Invoice #' : 'Receipt #'}:</b> {docType === 'proforma' ? proformaNo : receiptNo}</div>
+                        <div><b>{docType === 'proforma' ? 'Proforma Invoice #' : 'Receipt #'}:</b> {docType === 'proforma' ? proformaNo : receiptNo}</div>
                         <div><b>Tracking CSR #:</b> #{csrNumber}</div>
                         <div><b>Date of Issue:</b> {todayStr}</div>
                         {docType === 'proforma' && <div><b>Valid Until:</b> {validUntilDate}</div>}
@@ -351,7 +333,7 @@ export default function A4PrintModal({
                         </table>
                     </>
                 ) : (
-                    /* Proforma Invoice / Tax Invoice Table */
+                    /* Proforma Invoice Table */
                     <>
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', marginBottom: '12px' }}>
                             <thead>

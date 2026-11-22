@@ -1055,7 +1055,7 @@ export default function JobDetailModal({ jobId, onClose, onRefresh }) {
                                     {/* GST & Proforma Invoice Details */}
                                     <div style={{ background: 'var(--panel-bg)', padding: '0.75rem', borderRadius: '6px', border: '1px solid var(--border-color)', marginBottom: '0.75rem' }}>
                                         <div style={{ fontWeight: 'bold', fontSize: '0.8rem', color: 'var(--text-primary)', marginBottom: '6px' }}>
-                                            GST & Tax Invoice Settings
+                                            GST & Proforma Invoice Settings
                                         </div>
                                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '6px' }}>
                                             <div>
