@@ -728,7 +728,7 @@ app.get('/api/pending-book/pdf', async (req, res) => {
                 cust.name AS customer_name, cust.phone AS customer_phone
             FROM complaints c
             LEFT JOIN customers cust ON c.customer_id = cust.id
-            WHERE LOWER(TRIM(c.status)) NOT IN ('delivered', 'completed', 'returned')
+            WHERE LOWER(COALESCE(c.status, '')) NOT IN ('delivered', 'completed', 'returned')
             ORDER BY c.created_at DESC
         `);
 
@@ -744,7 +744,7 @@ app.get('/api/pending-book/pdf', async (req, res) => {
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
         res.setHeader('Content-Length', pdfBuffer.length);
-        res.send(pdfBuffer);
+        res.end(pdfBuffer);
     } catch (err) {
         console.error('Error generating pending book PDF:', err);
         res.status(500).json({ error: 'Failed to generate Pending Book PDF: ' + err.message });

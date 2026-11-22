@@ -235,6 +235,27 @@ export default function Dashboard() {
     });
     const displayedRecentDelivered = todayDelivered;
 
+    const downloadPendingBookPdf = async () => {
+        try {
+            const res = await fetch('/api/pending-book/pdf');
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.error || `Server returned ${res.status}`);
+            }
+            const blob = await res.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `Pending_Book_${new Date().toISOString().split('T')[0]}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+        } catch (e) {
+            window.open('/api/pending-book/pdf', '_blank');
+        }
+    };
+
     const WidgetHeader = ({ title, icon: Icon, children }) => (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem', marginBottom: '1rem', color: 'var(--text-primary)' }}>
             <div style={{ display: 'flex', alignItems: 'center' }}>
@@ -807,9 +828,9 @@ export default function Dashboard() {
                     </div>
                 </div>
                 <div className="dashboard-top-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexShrink: 0 }}>
-                    <a
-                        href="/api/pending-book/pdf"
-                        download="Pending_Book.pdf"
+                    <button
+                        type="button"
+                        onClick={downloadPendingBookPdf}
                         style={{
                             display: 'flex',
                             alignItems: 'center',
@@ -821,14 +842,13 @@ export default function Dashboard() {
                             borderRadius: '4px',
                             fontSize: '0.85rem',
                             fontWeight: '600',
-                            textDecoration: 'none',
                             cursor: 'pointer'
                         }}
                         title="Download official Pending Book in PDF format"
                     >
                         <FileText size={16} color="#35a7e6" />
                         Pending Book (PDF)
-                    </a>
+                    </button>
                     <NotificationBell />
                     <div className="dashboard-user-badge" style={{ background: '#f6f3eb', padding: '0.5rem 1rem', borderRadius: '4px', fontSize: '0.9rem', border: '1px solid var(--border-color)' }}>
                         User: <span style={{ color: '#35a7e6', fontWeight: 'bold' }}>{user?.username}</span> | Host: Hyper-CSR

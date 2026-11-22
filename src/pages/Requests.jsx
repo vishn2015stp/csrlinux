@@ -146,6 +146,27 @@ export default function Requests() {
         window.print();
     };
 
+    const downloadPendingBookPdf = async () => {
+        try {
+            const res = await fetch('/api/pending-book/pdf');
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.error || `Server returned ${res.status}`);
+            }
+            const blob = await res.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `Pending_Book_${new Date().toISOString().split('T')[0]}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+        } catch (e) {
+            window.open('/api/pending-book/pdf', '_blank');
+        }
+    };
+
     return (
         <div className="container">
             
@@ -154,9 +175,9 @@ export default function Requests() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '2rem' }}>
                     <h1 style={{ margin: 0, fontSize: '1.8rem', color: 'var(--text-primary)' }}>Service Request Directory</h1>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-                        <a
-                            href="/api/pending-book/pdf"
-                            download="Pending_Book.pdf"
+                        <button
+                            type="button"
+                            onClick={downloadPendingBookPdf}
                             style={{
                                 display: 'flex',
                                 alignItems: 'center',
@@ -168,14 +189,13 @@ export default function Requests() {
                                 borderRadius: '4px',
                                 fontSize: '0.85rem',
                                 fontWeight: '600',
-                                textDecoration: 'none',
                                 cursor: 'pointer'
                             }}
                             title="Download official Pending Book report in PDF format"
                         >
                             <FileText size={16} color="#35a7e6" />
                             Pending Book (PDF)
-                        </a>
+                        </button>
                         <div style={{ background: '#f6f3eb', padding: '0.5rem 1rem', borderRadius: '4px', fontSize: '0.9rem', border: '1px solid var(--border-color)' }}>
                             Total Records: <span style={{ color: '#35a7e6', fontWeight: 'bold' }}>{filteredRequests.length}</span>
                         </div>
