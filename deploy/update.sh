@@ -87,6 +87,7 @@ find "$BACKUP_DIR" -maxdepth 1 -type f -name "${DB_NAME}_*.dump" -printf '%T@ %p
 # ---------------------------------------------------------------- update
 log "Applying the new source and rebuilding..."
 git reset --hard "$NEW_SHA"
+chown -R "$APP_USER:$APP_USER" "$APP_DIR"
 run_as "$APP_USER" bash -c "cd \"$APP_DIR\" && npm ci"
 run_as "$APP_USER" bash -c "cd \"$APP_DIR\" && npm run build"
 [[ -f "$APP_DIR/dist/index.html" ]] || die "Build did not produce dist/index.html."
