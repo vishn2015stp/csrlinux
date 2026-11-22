@@ -46,6 +46,8 @@ rollback() {
     trap - ERR
     log "Something failed — rolling back to $OLD_SHA..."
     git -C "$APP_DIR" reset --hard "$OLD_SHA" >/dev/null 2>&1 || true
+    rm -rf "$APP_DIR/dist" || true
+    chown -R "$APP_USER:$APP_USER" "$APP_DIR" || true
     run_as "$APP_USER" bash -c "cd \"$APP_DIR\" && npm ci" >/dev/null 2>&1 || true
     run_as "$APP_USER" bash -c "cd \"$APP_DIR\" && npm run build" >/dev/null 2>&1 || true
     systemctl restart "$SERVICE_NAME" >/dev/null 2>&1 || true
@@ -87,6 +89,7 @@ find "$BACKUP_DIR" -maxdepth 1 -type f -name "${DB_NAME}_*.dump" -printf '%T@ %p
 # ---------------------------------------------------------------- update
 log "Applying the new source and rebuilding..."
 git reset --hard "$NEW_SHA"
+rm -rf "$APP_DIR/dist"
 chown -R "$APP_USER:$APP_USER" "$APP_DIR"
 run_as "$APP_USER" bash -c "cd \"$APP_DIR\" && npm ci"
 run_as "$APP_USER" bash -c "cd \"$APP_DIR\" && npm run build"

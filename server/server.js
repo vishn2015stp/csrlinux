@@ -741,10 +741,15 @@ app.get('/api/pending-book/pdf', async (req, res) => {
         });
 
         const filename = `Pending_Book_${new Date().toISOString().split('T')[0]}.pdf`;
+        const isView = req.query.view === '1' || req.query.inline === '1';
+        const disposition = isView ? 'inline' : `attachment; filename="${filename}"`;
         res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.setHeader('Content-Disposition', disposition);
         res.setHeader('Content-Length', pdfBuffer.length);
-        res.end(pdfBuffer);
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+        res.send(pdfBuffer);
     } catch (err) {
         console.error('Error generating pending book PDF:', err);
         res.status(500).json({ error: 'Failed to generate Pending Book PDF: ' + err.message });

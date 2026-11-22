@@ -1,17 +1,24 @@
 // Pure JavaScript PDF generator for Hyper-CSR (Pending Book)
-// No external npm dependencies required
+// Generates standard compliant PDF 1.4 A4 Landscape
+// Zero external npm dependencies required
 
 function escapePdf(str) {
     if (!str) return '';
     return String(str)
+        .replace(/[\r\n\t]+/g, ' ')
+        .replace(/[\u2018\u2019]/g, "'")
+        .replace(/[\u201C\u201D]/g, '"')
+        .replace(/[\u2013\u2014]/g, '-')
+        .replace(/\u2022/g, '*')
+        .replace(/\u2026/g, '...')
+        .replace(/[^\x20-\x7E]/g, '') // Keep clean printable ASCII
         .replace(/\\/g, '\\\\')
         .replace(/\(/g, '\\(')
-        .replace(/\)/g, '\\)')
-        .replace(/[\r\n]+/g, ' ');
+        .replace(/\)/g, '\\)');
 }
 
 function truncateText(str, width) {
-    if (!str) return '—';
+    if (!str) return '-';
     // ~4.8 pt per character for Helvetica 8pt
     const maxChars = Math.max(3, Math.floor(width / 4.8));
     const s = String(str).trim();
@@ -74,7 +81,7 @@ function generatePendingBookPdf({
         stream += `/F2 15 Tf\n`;
         stream += `0.1 0.1 0.2 rg\n`;
         stream += `${margin} ${pageHeight - margin - 12} Td\n`;
-        stream += `(${escapePdf(shopName)} — PENDING SERVICE REGISTER (PENDING BOOK)) Tj\n`;
+        stream += `(${escapePdf(shopName)} - PENDING SERVICE REGISTER (PENDING BOOK)) Tj\n`;
         stream += 'ET\n';
 
         // 2. Subtitle / Metadata
@@ -126,9 +133,14 @@ function generatePendingBookPdf({
                 if (col.key === 'sl') {
                     text = String(p * rowsPerPage + i + 1);
                 } else if (col.key === 'date') {
-                    text = r.created_at ? new Date(r.created_at).toLocaleDateString('en-GB') : '—';
+                    try {
+                        text = r.created_at ? new Date(r.created_at).toLocaleDateString('en-GB') : '-';
+                        if (text === 'Invalid Date') text = String(r.created_at).substring(0, 10);
+                    } catch {
+                        text = '-';
+                    }
                 } else {
-                    text = r[col.key] || '—';
+                    text = r[col.key] != null ? String(r[col.key]) : '-';
                 }
 
                 const truncated = truncateText(text, col.width - 4);

@@ -154,16 +154,22 @@ export default function Requests() {
                 throw new Error(err.error || `Server returned ${res.status}`);
             }
             const blob = await res.blob();
+            if (!blob || blob.size === 0) {
+                throw new Error('Received empty PDF file from server');
+            }
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
             a.download = `Pending_Book_${new Date().toISOString().split('T')[0]}.pdf`;
             document.body.appendChild(a);
             a.click();
-            window.URL.revokeObjectURL(url);
-            document.body.removeChild(a);
+            setTimeout(() => {
+                if (document.body.contains(a)) document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+            }, 60000);
         } catch (e) {
-            window.open('/api/pending-book/pdf', '_blank');
+            console.error('PDF fetch failed, trying direct link:', e);
+            window.location.href = '/api/pending-book/pdf';
         }
     };
 
