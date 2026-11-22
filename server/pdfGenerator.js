@@ -41,19 +41,38 @@ function generatePendingBookPdf({
     const margin = 30;
     const usableWidth = pageWidth - 2 * margin; // 782 pt
 
+    // Removed MODE column, distributed width cleanly across remaining 8 columns (total = 782 pt)
     const columns = [
         { header: 'SL', key: 'sl', width: 28 },
-        { header: 'CSR #', key: 'csr_number', width: 52 },
-        { header: 'INTAKE DATE', key: 'date', width: 75 },
-        { header: 'CUSTOMER NAME', key: 'customer_name', width: 125 },
-        { header: 'PHONE', key: 'customer_phone', width: 85 },
-        { header: 'PRODUCT / DEVICE', key: 'item_name', width: 135 },
-        { header: 'COMPLAINT / ISSUE', key: 'issue', width: 170 },
-        { header: 'STATUS', key: 'status', width: 65 },
-        { header: 'MODE', key: 'service_mode', width: 47 }
+        { header: 'CSR #', key: 'csr_number', width: 54 },
+        { header: 'INTAKE DATE', key: 'date', width: 80 },
+        { header: 'CUSTOMER NAME', key: 'customer_name', width: 135 },
+        { header: 'PHONE', key: 'customer_phone', width: 90 },
+        { header: 'PRODUCT / DEVICE', key: 'item_name', width: 155 },
+        { header: 'COMPLAINT / ISSUE', key: 'issue', width: 175 },
+        { header: 'STATUS', key: 'status', width: 65 }
     ];
 
-    const rowsPerPage = 22;
+    // Status metrics for heading summary box
+    let returnCount = 0;
+    let readyCount = 0;
+    let warrantyCount = 0;
+    let pendingCount = 0;
+
+    for (const r of records) {
+        const s = String(r.status || '').trim().toUpperCase();
+        if (s.includes('RETURN')) {
+            returnCount++;
+        } else if (s.includes('READY')) {
+            readyCount++;
+        } else if (s.includes('WARR')) {
+            warrantyCount++;
+        } else {
+            pendingCount++;
+        }
+    }
+
+    const rowsPerPage = 24;
     const pageCount = Math.max(1, Math.ceil(records.length / rowsPerPage));
 
     const objects = [];
@@ -76,33 +95,90 @@ function generatePendingBookPdf({
         const pageRows = records.slice(p * rowsPerPage, (p + 1) * rowsPerPage);
         let stream = '';
 
-        // 1. Title Banner
+        // ================= HEADER =================
+        // 1. Left Side: Title & Metadata
         stream += 'BT\n';
-        stream += `/F2 15 Tf\n`;
-        stream += `0.1 0.1 0.2 rg\n`;
-        stream += `${margin} ${pageHeight - margin - 12} Td\n`;
-        stream += `(${escapePdf(shopName)} - PENDING SERVICE REGISTER (PENDING BOOK)) Tj\n`;
+        stream += `/F2 14 Tf\n`;
+        stream += `0.1 0.15 0.25 rg\n`;
+        stream += `${margin} ${pageHeight - margin - 8} Td\n`;
+        stream += `(${escapePdf(shopName)} - PENDING SERVICE REGISTER) Tj\n`;
         stream += 'ET\n';
 
-        // 2. Subtitle / Metadata
-        const metaStr = `Total Pending Records: ${records.length} | Generated: ${generatedDate} ${shopPhone ? `| Tel: ${shopPhone}` : ''} | Page ${p + 1} of ${pageCount}`;
+        const metaStr1 = `Total Pending Records: ${records.length} | Generated: ${generatedDate} ${shopPhone ? `| Tel: ${escapePdf(shopPhone)}` : ''}`;
         stream += 'BT\n';
         stream += `/F1 8.5 Tf\n`;
-        stream += `0.4 0.4 0.4 rg\n`;
-        stream += `${margin} ${pageHeight - margin - 26} Td\n`;
-        stream += `(${escapePdf(metaStr)}) Tj\n`;
+        stream += `0.35 0.35 0.35 rg\n`;
+        stream += `${margin} ${pageHeight - margin - 23} Td\n`;
+        stream += `(${escapePdf(metaStr1)}) Tj\n`;
         stream += 'ET\n';
 
-        // Header separator line
-        const headerLineY = pageHeight - margin - 34;
+        const metaStr2 = `${shopAddress ? `${escapePdf(shopAddress)} | ` : ''}Page ${p + 1} of ${pageCount} | Confidential Shop Register`;
+        stream += 'BT\n';
+        stream += `/F1 8 Tf\n`;
+        stream += `0.5 0.5 0.5 rg\n`;
+        stream += `${margin} ${pageHeight - margin - 35} Td\n`;
+        stream += `(${escapePdf(metaStr2)}) Tj\n`;
+        stream += 'ET\n';
+
+        // 2. Right Side: Status Summary Box (matches spreadsheet image)
+        const boxWidth = 140;
+        const boxHeight = 48; // 4 rows x 12pt
+        const boxX = pageWidth - margin - boxWidth; // 672
+        const boxY = pageHeight - margin - boxHeight - 2; // 515
+        const colSplitX = boxX + 88; // label column: 88pt, count column: 52pt
+
+        // Box background
+        stream += `1 1 1 rg\n${boxX} ${boxY} ${boxWidth} ${boxHeight} re f\n`;
+
+        // Outer border
+        stream += `0.2 0.2 0.2 RG\n1 w\n${boxX} ${boxY} ${boxWidth} ${boxHeight} re S\n`;
+
+        // Vertical divider between label and count
+        stream += `0.5 w\n${colSplitX} ${boxY} m ${colSplitX} ${boxY + boxHeight} l S\n`;
+
+        // Horizontal dividers
+        for (let rowIdx = 1; rowIdx <= 3; rowIdx++) {
+            const lineY = boxY + rowIdx * 12;
+            stream += `${boxX} ${lineY} m ${boxX + boxWidth} ${lineY} l S\n`;
+        }
+
+        // Status rows: label, count, color [r, g, b]
+        const statusRows = [
+            { label: 'RETURN', count: returnCount, color: [0.0, 0.15, 0.75] },    // Blue
+            { label: 'READY', count: readyCount, color: [0.0, 0.52, 0.15] },      // Green
+            { label: 'WARRENTY', count: warrantyCount, color: [0.85, 0.38, 0.0] }, // Orange
+            { label: 'PENDING', count: pendingCount, color: [0.82, 0.1, 0.1] }      // Red
+        ];
+
+        // Draw status rows from top to bottom
+        for (let idx = 0; idx < statusRows.length; idx++) {
+            const item = statusRows[idx];
+            const rowBaseY = boxY + (3 - idx) * 12 + 3;
+
+            // Draw label (black, bold)
+            stream += 'BT\n/F2 8.5 Tf\n0 0 0 rg\n';
+            stream += `1 0 0 1 ${boxX + 12} ${rowBaseY} Tm (${escapePdf(item.label)}) Tj\n`;
+            stream += 'ET\n';
+
+            // Draw count (colored, bold, centered in count column)
+            const countStr = String(item.count);
+            const countWidthApprox = countStr.length * 5.8;
+            const countX = colSplitX + Math.round((52 - countWidthApprox) / 2);
+
+            stream += 'BT\n/F2 9.5 Tf\n';
+            stream += `${item.color[0]} ${item.color[1]} ${item.color[2]} rg\n`;
+            stream += `1 0 0 1 ${countX} ${rowBaseY} Tm (${escapePdf(countStr)}) Tj\n`;
+            stream += 'ET\n';
+        }
+
+        // 3. Header separator line
+        const headerLineY = boxY - 8;
         stream += `0.8 0.8 0.8 RG\n1 w\n${margin} ${headerLineY} m ${pageWidth - margin} ${headerLineY} l S\n`;
 
-        // 3. Table Header
+        // 4. Table Header
         let currentY = headerLineY - 18;
-        // Table Header background
         stream += `0.2 0.25 0.35 rg\n${margin} ${currentY - 4} ${usableWidth} 18 re f\n`;
 
-        // Table Header text
         let colX = margin + 5;
         stream += 'BT\n/F2 8.5 Tf\n1 1 1 rg\n';
         for (const col of columns) {
@@ -111,23 +187,19 @@ function generatePendingBookPdf({
         }
         stream += 'ET\n';
 
-        // 4. Table Rows
+        // 5. Table Rows
         currentY -= 17;
         for (let i = 0; i < pageRows.length; i++) {
             const r = pageRows[i];
             const isAlt = i % 2 === 1;
 
-            // Row background
             if (isAlt) {
                 stream += `0.96 0.96 0.97 rg\n${margin} ${currentY - 4} ${usableWidth} 16 re f\n`;
             }
 
-            // Bottom border line
             stream += `0.9 0.9 0.9 RG\n0.5 w\n${margin} ${currentY - 4} m ${pageWidth - margin} ${currentY - 4} l S\n`;
 
-            // Draw status highlight dot / text
             colX = margin + 5;
-            stream += 'BT\n/F1 8 Tf\n0.15 0.15 0.15 rg\n';
             for (const col of columns) {
                 let text = '';
                 if (col.key === 'sl') {
@@ -144,15 +216,29 @@ function generatePendingBookPdf({
                 }
 
                 const truncated = truncateText(text, col.width - 4);
-                stream += `1 0 0 1 ${colX} ${currentY} Tm (${escapePdf(truncated)}) Tj\n`;
+
+                // Highlight status column with matching color
+                if (col.key === 'status') {
+                    const stUpper = text.toUpperCase();
+                    let sColor = '0.2 0.2 0.2';
+                    if (stUpper.includes('RETURN')) sColor = '0.0 0.15 0.75';
+                    else if (stUpper.includes('READY')) sColor = '0.0 0.52 0.15';
+                    else if (stUpper.includes('WARR')) sColor = '0.85 0.38 0.0';
+                    else if (stUpper.includes('PENDING')) sColor = '0.82 0.1 0.1';
+
+                    stream += 'BT\n/F2 8 Tf\n' + sColor + ' rg\n';
+                    stream += `1 0 0 1 ${colX} ${currentY} Tm (${escapePdf(truncated)}) Tj\nET\n`;
+                } else {
+                    stream += 'BT\n/F1 8 Tf\n0.15 0.15 0.15 rg\n';
+                    stream += `1 0 0 1 ${colX} ${currentY} Tm (${escapePdf(truncated)}) Tj\nET\n`;
+                }
                 colX += col.width;
             }
-            stream += 'ET\n';
 
             currentY -= 16;
         }
 
-        // 5. Footer note
+        // 6. Footer note
         stream += 'BT\n';
         stream += `/F1 7.5 Tf\n`;
         stream += `0.5 0.5 0.5 rg\n`;
