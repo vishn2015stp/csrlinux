@@ -3,29 +3,110 @@ const crypto = require('crypto');
 
 // PostgreSQL connection (hosted Supabase or a local Postgres cluster)
 // Use the pooler connection string (port 6543, transaction mode) for serverless
-const connectionString = process.env.SUPABASE_DB_URL
+let currentConnectionString = process.env.SUPABASE_DB_URL
     || process.env.DATABASE_URL
     || process.env.POSTGRES_URL;
 
-// Hosted databases need TLS; a local Debian PostgreSQL install does not.
-// DB_SSL overrides the auto-detection (e.g. DB_SSL=0 for local, =1 for hosted).
-const sslFlag = (process.env.DB_SSL || '').toLowerCase();
-const isLocalDb = /(^|@)(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/.test(connectionString || '');
-const useSsl = ['1', 'true', 'yes', 'on', 'require'].includes(sslFlag)
-    || (!['0', 'false', 'no', 'off', 'disable'].includes(sslFlag) && !isLocalDb);
+function determineSsl(connStr, sslFlag) {
+    const flag = (sslFlag !== undefined && sslFlag !== null ? String(sslFlag) : (process.env.DB_SSL || '')).toLowerCase();
+    const isLocalDb = /(^|@)(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/.test(connStr || '');
+    return ['1', 'true', 'yes', 'on', 'require'].includes(flag)
+        || (!['0', 'false', 'no', 'off', 'disable'].includes(flag) && !isLocalDb);
+}
 
-const pool = new Pool({
-    connectionString,
-    ...(useSsl ? { ssl: { rejectUnauthorized: false } } : {}),
-    max: parseInt(process.env.DB_POOL_MAX || '5', 10),
-    connectionTimeoutMillis: 10000,
-    idleTimeoutMillis: 30000
-});
+function createPool(connStr, ssl) {
+    const p = new Pool({
+        connectionString: connStr,
+        ...(ssl ? { ssl: { rejectUnauthorized: false } } : {}),
+        max: parseInt(process.env.DB_POOL_MAX || '5', 10),
+        connectionTimeoutMillis: 10000,
+        idleTimeoutMillis: 30000
+    });
+    p.on('error', (err) => {
+        console.error('Unexpected error on idle pg client:', err.message);
+    });
+    return p;
+}
 
-// Avoid process crashes on unexpected idle connection drops
-pool.on('error', (err) => {
-    console.error('Unexpected error on idle pg client:', err.message);
-});
+let pool = createPool(currentConnectionString, determineSsl(currentConnectionString));
+
+function getConnectionInfo() {
+    try {
+        if (!currentConnectionString) {
+            return { configured: false };
+        }
+        let parsed;
+        try {
+            parsed = new URL(currentConnectionString);
+            return {
+                configured: true,
+                host: parsed.hostname,
+                port: parsed.port || '5432',
+                database: parsed.pathname.replace(/^\//, ''),
+                user: parsed.username,
+                ssl: determineSsl(currentConnectionString),
+                maskedUrl: `${parsed.protocol}//${parsed.username}:••••••@${parsed.host}${parsed.pathname}`
+            };
+        } catch {
+            return {
+                configured: true,
+                raw: true,
+                maskedUrl: currentConnectionString.replace(/:([^@]+)@/, ':••••••@'),
+                ssl: determineSsl(currentConnectionString)
+            };
+        }
+    } catch (e) {
+        return { configured: false, error: e.message };
+    }
+}
+
+async function testConnection(testUrl, testSsl) {
+    const ssl = testSsl !== undefined ? testSsl : determineSsl(testUrl);
+    const testPool = new Pool({
+        connectionString: testUrl,
+        ...(ssl ? { ssl: { rejectUnauthorized: false } } : {}),
+        connectionTimeoutMillis: 8000
+    });
+    try {
+        const res = await testPool.query('SELECT version(), current_database(), current_user');
+        await testPool.end();
+        return {
+            success: true,
+            version: res.rows[0].version,
+            database: res.rows[0].current_database,
+            user: res.rows[0].current_user
+        };
+    } catch (err) {
+        try { await testPool.end(); } catch {}
+        return { success: false, error: err.message };
+    }
+}
+
+async function reconfigure(newConnectionString, newSsl) {
+    const ssl = newSsl !== undefined ? newSsl : determineSsl(newConnectionString);
+    const oldPool = pool;
+    const oldConnStr = currentConnectionString;
+    
+    currentConnectionString = newConnectionString;
+    pool = createPool(newConnectionString, ssl);
+    dbInitPromise = null;
+
+    const initResult = await ensureInitialized();
+    if (!initResult.success) {
+        // Rollback if initialization fails
+        pool = oldPool;
+        currentConnectionString = oldConnStr;
+        dbInitPromise = null;
+        return { success: false, error: initResult.error };
+    }
+
+    try {
+        await oldPool.end();
+    } catch (e) {
+        console.error('Error ending previous pg pool:', e.message);
+    }
+    return { success: true };
+}
 
 let dbInitPromise = null;
 
@@ -33,7 +114,7 @@ function ensureInitialized() {
     if (!dbInitPromise) {
         dbInitPromise = (async () => {
             try {
-                if (!connectionString) {
+                if (!currentConnectionString) {
                     throw new Error("SUPABASE_DB_URL / DATABASE_URL environment variable is not defined. Set your Supabase PostgreSQL connection string.");
                 }
 
@@ -210,5 +291,9 @@ function ensureInitialized() {
 
 module.exports = {
     query: (text, params) => pool.query(text, params),
-    ensureInitialized
+    ensureInitialized,
+    getConnectionInfo,
+    testConnection,
+    reconfigure,
+    determineSsl
 };

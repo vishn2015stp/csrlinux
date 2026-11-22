@@ -4,6 +4,30 @@ const cors = require('cors');
 const db = require('./db.js');
 const { randomUUID: uuidv4 } = require('crypto');
 const path = require('path');
+const fs = require('fs');
+
+const envPath = path.resolve(__dirname, '..', '.env');
+
+function updateEnvDatabaseUrl(newDatabaseUrl, dbSsl) {
+    let content = '';
+    if (fs.existsSync(envPath)) {
+        content = fs.readFileSync(envPath, 'utf8');
+    }
+    // Update or append DATABASE_URL
+    if (/^DATABASE_URL=/m.test(content)) {
+        content = content.replace(/^DATABASE_URL=.*$/m, `DATABASE_URL=${newDatabaseUrl}`);
+    } else {
+        content = (content ? content.trim() + '\n' : '') + `DATABASE_URL=${newDatabaseUrl}\n`;
+    }
+    // Update or append DB_SSL
+    const sslVal = (dbSsl === '1' || dbSsl === true || dbSsl === 'true') ? '1' : '0';
+    if (/^DB_SSL=/m.test(content)) {
+        content = content.replace(/^DB_SSL=.*$/m, `DB_SSL=${sslVal}`);
+    } else {
+        content = (content ? content.trim() + '\n' : '') + `DB_SSL=${sslVal}\n`;
+    }
+    fs.writeFileSync(envPath, content.trim() + '\n', { encoding: 'utf8' });
+}
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -719,6 +743,86 @@ app.put('/api/settings', async (req, res) => {
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
+    }
+});
+
+// =============== ADMIN DATABASE CONFIGURATION ===============
+app.get('/api/admin/database', async (req, res) => {
+    try {
+        const info = db.getConnectionInfo();
+        let dbVersion = 'Unknown';
+        let isConnected = false;
+        let counts = { complaints: 0, users: 0, customers: 0 };
+        try {
+            const check = await db.query('SELECT version(), current_database(), current_user');
+            dbVersion = check.rows[0]?.version || 'Unknown';
+            isConnected = true;
+            const cRes = await db.query('SELECT COUNT(*)::int as count FROM complaints');
+            const uRes = await db.query('SELECT COUNT(*)::int as count FROM users');
+            const custRes = await db.query('SELECT COUNT(*)::int as count FROM customers');
+            counts = {
+                complaints: cRes.rows[0]?.count || 0,
+                users: uRes.rows[0]?.count || 0,
+                customers: custRes.rows[0]?.count || 0
+            };
+        } catch (e) {
+            isConnected = false;
+        }
+        res.json({
+            ...info,
+            isConnected,
+            dbVersion,
+            counts
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/admin/database/test', async (req, res) => {
+    try {
+        const { connectionUrl, ssl } = req.body;
+        if (!connectionUrl) {
+            return res.status(400).json({ success: false, error: 'Database connection URL is required' });
+        }
+        const result = await db.testConnection(connectionUrl, ssl);
+        res.json(result);
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+app.post('/api/admin/database/save', async (req, res) => {
+    try {
+        const { connectionUrl, ssl } = req.body;
+        if (!connectionUrl) {
+            return res.status(400).json({ success: false, error: 'Database connection URL is required' });
+        }
+        // Test connection first before applying
+        const testRes = await db.testConnection(connectionUrl, ssl);
+        if (!testRes.success) {
+            return res.status(400).json({ success: false, error: 'Could not connect to target database: ' + testRes.error });
+        }
+        
+        // Write to .env
+        updateEnvDatabaseUrl(connectionUrl, ssl);
+        process.env.DATABASE_URL = connectionUrl;
+        process.env.DB_SSL = ssl ? '1' : '0';
+
+        // Reconnect pool & run schema initialization/migrations
+        const reconf = await db.reconfigure(connectionUrl, ssl);
+        if (!reconf.success) {
+            return res.status(500).json({ success: false, error: 'Failed to initialize schema on new database: ' + reconf.error });
+        }
+
+        res.json({
+            success: true,
+            message: 'Database location updated and connected successfully! Schema initialized.',
+            database: testRes.database,
+            version: testRes.version
+        });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
     }
 });
 

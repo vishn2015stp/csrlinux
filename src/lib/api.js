@@ -230,5 +230,32 @@ export const api = {
     async markAllNotificationsRead() {
         const res = await fetch(`${API_URL}/notifications/read-all`, { method: 'PUT' });
         return res.json();
+    },
+
+    // ---- DATABASE CONFIGURATION (ADMIN) ----
+    async getDatabaseConfig() {
+        const res = await fetch(`${API_URL}/admin/database`);
+        if (!res.ok) throw new Error('Failed to fetch database configuration');
+        return res.json();
+    },
+    async testDatabaseConfig(payload) {
+        const res = await fetch(`${API_URL}/admin/database/test`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Database connection test failed');
+        return data;
+    },
+    async saveDatabaseConfig(payload) {
+        const res = await fetch(`${API_URL}/admin/database/save`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to update database configuration');
+        return data;
     }
 };
