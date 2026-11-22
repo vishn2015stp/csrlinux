@@ -73,9 +73,11 @@ export default function Requests() {
         let matchesMode = true;
         if (modeFilter !== 'All') {
             if (modeFilter === 'In-Shop') {
-                matchesMode = req.service_type !== 'On-Site' && req.service_mode !== 'Onsite';
+                matchesMode = req.service_type !== 'On-Site' && req.service_mode !== 'Onsite' && req.service_type !== 'Sales';
             } else if (modeFilter === 'On-Site') {
                 matchesMode = req.service_type === 'On-Site' || req.service_mode === 'Onsite';
+            } else if (modeFilter === 'Sales') {
+                matchesMode = req.service_type === 'Sales' || req.status === 'Quotation' || req.is_device_intaken === 0;
             }
         }
 
@@ -266,6 +268,7 @@ export default function Requests() {
                             }}
                         >
                             <option value="All">All Statuses</option>
+                            <option value="Quotation">Quotation / Proforma</option>
                             <option value="Pending">Pending</option>
                             <option value="In Progress">In Progress</option>
                             <option value="Intaken">Intaken</option>
@@ -298,9 +301,10 @@ export default function Requests() {
                                 margin: 0
                             }}
                         >
-                            <option value="All">All Service Types</option>
-                            <option value="In-Shop">In-Shop</option>
-                            <option value="On-Site">On-Site</option>
+                            <option value="All">All Service & Sales Types</option>
+                            <option value="In-Shop">In-Shop Service</option>
+                            <option value="On-Site">On-Site Service</option>
+                            <option value="Sales">Sales & Proforma Quotations</option>
                         </select>
                     </div>
 

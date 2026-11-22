@@ -3,12 +3,16 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { v4 as uuidv4 } from 'uuid';
 import { useAuth } from '../context/AuthContext';
-import { Printer, Plus, Trash2, FileText, CheckCircle2, User, Wrench, Package, ArrowLeft, RefreshCw } from 'lucide-react';
+import { Printer, Plus, Trash2, FileText, CheckCircle2, User, Wrench, Package, ArrowLeft, Monitor, ShoppingBag, Cpu } from 'lucide-react';
 import A4PrintModal from '../components/A4PrintModal';
 
 export default function ProformaInvoice() {
     const { user } = useAuth();
     const navigate = useNavigate();
+
+    // Quotation Mode: 'sales' (New Device / Custom PC / Product Sales - No Device Intake)
+    //                'service' (Repair / Service Estimate on existing customer device)
+    const [quoteMode, setQuoteMode] = useState('sales');
 
     // Customer state
     const [customerData, setCustomerData] = useState({
@@ -20,7 +24,15 @@ export default function ProformaInvoice() {
         gstin: ''
     });
 
-    // Device / Job state
+    // Product Sales / Custom PC Details (for 'sales' mode)
+    const [salesData, setSalesData] = useState({
+        title: 'Custom Desktop PC Build',
+        category: 'Custom PC',
+        notes: 'Includes individual component manufacturer warranty (1 to 3 Years). Free hardware assembly, testing & OS driver setup included.',
+        fulfillment: 'Direct Sale / Delivery'
+    });
+
+    // Device / Repair Details (for 'service' mode)
     const [jobData, setJobData] = useState({
         itemName: '',
         brand: '',
@@ -31,12 +43,12 @@ export default function ProformaInvoice() {
     });
 
     // Billing & GST state
-    const [serviceFee, setServiceFee] = useState('');
+    const [serviceFee, setServiceFee] = useState(''); // Assembly labor or service fee
     const [sparesList, setSparesList] = useState([]);
     const [gstType, setGstType] = useState('CGST_SGST'); // 'CGST_SGST' | 'IGST' | 'NONE'
     const [gstRate, setGstRate] = useState(18);
 
-    // Spare parts picker state
+    // Spare parts / component entry state
     const [inventory, setInventory] = useState([]);
     const [selectedInvId, setSelectedInvId] = useState('');
     const [newSpareName, setNewSpareName] = useState('');
@@ -64,7 +76,7 @@ export default function ProformaInvoice() {
         accountNo: '',
         ifsc: '',
         upiId: '',
-        proformaTerms: '1. This is a Proforma Invoice / Quotation and not a final Tax Invoice.\n2. Quotation is valid for 15 days from date of issue.\n3. Repairs will commence upon customer approval of this estimate.\n4. Spares subject to market availability.'
+        proformaTerms: '1. This is a Proforma Invoice / Quotation and not a final Tax Invoice.\n2. Quotation is valid for 15 days from date of issue.\n3. Orders will be processed upon approval.\n4. Hardware components subject to market availability.'
     });
 
     const [loading, setLoading] = useState(false);
@@ -72,7 +84,7 @@ export default function ProformaInvoice() {
     const [successProforma, setSuccessProforma] = useState(null);
     const [showPrintModal, setShowPrintModal] = useState(false);
 
-    // Load customers, settings, and inventory
+    // Load initial data
     const loadInitialData = async () => {
         try {
             const settings = await api.getSettings();
@@ -131,6 +143,27 @@ export default function ProformaInvoice() {
         setMatchedCustomers([]);
     };
 
+    // Preset selection helper for New Device / Custom PC
+    const applySalesPreset = (title, category, defaultNotes, defaultAssembly) => {
+        setSalesData({
+            title,
+            category,
+            notes: defaultNotes,
+            fulfillment: 'Direct Sale / Delivery'
+        });
+        if (defaultAssembly !== undefined) {
+            setServiceFee(defaultAssembly > 0 ? String(defaultAssembly) : '');
+        }
+    };
+
+    // Component helper tags for custom build PC
+    const handleComponentTagClick = (compLabel, hsnDefault = '8473') => {
+        setNewSpareName(`${compLabel}: `);
+        setNewSpareHsn(hsnDefault);
+        setNewSpareQty('1');
+        setSelectedInvId('');
+    };
+
     // Handle inventory item selection
     const handleSelectInventoryItem = (itemId) => {
         setSelectedInvId(itemId);
@@ -147,7 +180,7 @@ export default function ProformaInvoice() {
         }
     };
 
-    // Add spare to table
+    // Add spare / item to table
     const handleAddSpare = () => {
         if (!newSpareName.trim()) return;
         const qty = parseInt(newSpareQty) || 1;
@@ -206,6 +239,11 @@ export default function ProformaInvoice() {
             return;
         }
 
+        if (sparesList.length === 0 && sFee === 0) {
+            setError('Please add at least one item, component, or service charge to the quotation.');
+            return;
+        }
+
         setLoading(true);
         setError(null);
 
@@ -240,28 +278,32 @@ export default function ProformaInvoice() {
                 });
             }
 
-            // 2. Create Complaint / Service Request entry in DB
+            // 2. Prepare Complaint / Quotation record
             const complaintId = uuidv4();
             const now = new Date().toISOString();
             const year = new Date().getFullYear();
             const randomCode = Math.floor(1000 + Math.random() * 9000);
             const proformaNo = `PI-${year}-${randomCode}`;
 
-            const createdComplaint = await api.createComplaint({
+            const isSales = quoteMode === 'sales';
+
+            const complaintPayload = {
                 id: complaintId,
                 customer_id: customerId,
-                item_name: jobData.itemName || 'Computer / Device Service',
-                brand: jobData.brand || null,
-                model: jobData.model || null,
-                serial_no: jobData.serialNo || '—',
-                issue: jobData.issue || 'Service and repair quotation',
-                status: 'Pending',
-                service_type: 'In-Shop',
-                service_mode: jobData.serviceMode,
-                is_device_intaken: 1,
+                item_name: isSales ? (salesData.title || 'Custom PC Build / New Hardware') : (jobData.itemName || 'Device Service'),
+                brand: isSales ? null : (jobData.brand || null),
+                model: isSales ? (salesData.category || null) : (jobData.model || null),
+                serial_no: isSales ? '—' : (jobData.serialNo || '—'),
+                issue: isSales ? (salesData.notes || 'Hardware sales quotation') : (jobData.issue || 'Service and repair quotation'),
+                status: isSales ? 'Quotation' : 'Pending',
+                service_type: isSales ? 'Sales' : 'In-Shop',
+                service_mode: isSales ? salesData.fulfillment : jobData.serviceMode,
+                is_device_intaken: isSales ? 0 : 1, // 0 for sales (NO device intaken!), 1 for repairs
                 created_at: now,
                 created_by: user?.username || 'admin'
-            });
+            };
+
+            const createdComplaint = await api.createComplaint(complaintPayload);
 
             // 3. Create Invoice entry in DB with Proforma details
             const invoiceId = uuidv4();
@@ -282,8 +324,8 @@ export default function ProformaInvoice() {
                 total: grandTotal,
                 spares: JSON.stringify(sparesList),
                 customer_gstin: customerData.gstin ? customerData.gstin.trim() : null,
-                invoice_type: 'PROFORMA',
-                warranty: '30 Days',
+                invoice_type: isSales ? 'SALES_PROFORMA' : 'PROFORMA',
+                warranty: isSales ? 'Manufacturer Warranty' : '30 Days',
                 created_at: now
             };
 
@@ -292,6 +334,8 @@ export default function ProformaInvoice() {
             const proformaPackage = {
                 job: {
                     ...createdComplaint,
+                    service_type: isSales ? 'Sales' : 'In-Shop',
+                    is_device_intaken: isSales ? 0 : 1,
                     created_at: now
                 },
                 customer: {
@@ -318,6 +362,12 @@ export default function ProformaInvoice() {
 
     const handleResetForm = () => {
         setCustomerData({ name: '', phone: '', email: '', address: '', location: '', gstin: '' });
+        setSalesData({
+            title: 'Custom Desktop PC Build',
+            category: 'Custom PC',
+            notes: 'Includes individual component manufacturer warranty (1 to 3 Years). Free hardware assembly, testing & OS driver setup included.',
+            fulfillment: 'Direct Sale / Delivery'
+        });
         setJobData({ itemName: '', brand: '', model: '', serialNo: '', issue: 'General service and repair quotation', serviceMode: 'On Center' });
         setServiceFee('');
         setSparesList([]);
@@ -346,7 +396,7 @@ export default function ProformaInvoice() {
                         margin: 0
                     }}
                 >
-                    📋 New Service Request
+                    📋 New Service Request (Intake)
                 </button>
                 <button
                     onClick={() => navigate('/proforma')}
@@ -368,14 +418,14 @@ export default function ProformaInvoice() {
             </div>
 
             {/* Page Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '1rem' }}>
                 <div>
                     <h1 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '10px', fontSize: '1.4rem' }}>
                         <FileText size={28} color="var(--accent)" />
                         Create Proforma Invoice / Quotation
                     </h1>
                     <p style={{ margin: '4px 0 0 0', color: 'var(--text-secondary)', fontSize: '0.88rem' }}>
-                        Generate an official A4 price estimate and quotation with customer details, inventory spare parts, and GST calculation.
+                        Generate an official A4 quotation for new devices, custom build PCs, hardware sales, or service estimates.
                     </p>
                 </div>
                 <button
@@ -383,6 +433,76 @@ export default function ProformaInvoice() {
                     style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--panel-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', padding: '0.5rem 1rem', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem' }}
                 >
                     <ArrowLeft size={16} /> Back to Dashboard
+                </button>
+            </div>
+
+            {/* ── QUOTATION PURPOSE SELECTOR ── */}
+            <div style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: '12px',
+                background: '#f6f3eb',
+                padding: '0.75rem',
+                borderRadius: '8px',
+                border: '1.5px solid var(--border-color)',
+                marginBottom: '1.5rem'
+            }}>
+                <button
+                    type="button"
+                    onClick={() => setQuoteMode('sales')}
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '10px',
+                        padding: '0.85rem 1rem',
+                        background: quoteMode === 'sales' ? 'var(--panel-bg)' : 'transparent',
+                        border: quoteMode === 'sales' ? '2px solid var(--accent)' : '1px solid transparent',
+                        borderRadius: '6px',
+                        color: quoteMode === 'sales' ? 'var(--accent)' : 'var(--text-secondary)',
+                        fontWeight: 'bold',
+                        fontSize: '0.95rem',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease',
+                        boxShadow: quoteMode === 'sales' ? '0 2px 8px rgba(0,0,0,0.1)' : 'none'
+                    }}
+                >
+                    <Monitor size={20} />
+                    <div style={{ textAlign: 'left' }}>
+                        <div>New Device / Custom PC Build</div>
+                        <div style={{ fontSize: '0.75rem', fontWeight: 'normal', color: 'var(--text-secondary)' }}>
+                            No device intake required (Sales quotation for products, new PCs, laptops & spares)
+                        </div>
+                    </div>
+                </button>
+
+                <button
+                    type="button"
+                    onClick={() => setQuoteMode('service')}
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '10px',
+                        padding: '0.85rem 1rem',
+                        background: quoteMode === 'service' ? 'var(--panel-bg)' : 'transparent',
+                        border: quoteMode === 'service' ? '2px solid var(--accent)' : '1px solid transparent',
+                        borderRadius: '6px',
+                        color: quoteMode === 'service' ? 'var(--accent)' : 'var(--text-secondary)',
+                        fontWeight: 'bold',
+                        fontSize: '0.95rem',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease',
+                        boxShadow: quoteMode === 'service' ? '0 2px 8px rgba(0,0,0,0.1)' : 'none'
+                    }}
+                >
+                    <Wrench size={20} />
+                    <div style={{ textAlign: 'left' }}>
+                        <div>Service & Repair Estimate</div>
+                        <div style={{ fontSize: '0.75rem', fontWeight: 'normal', color: 'var(--text-secondary)' }}>
+                            Device taken for service (Quote for repair diagnostics, labor & replacement spares)
+                        </div>
+                    </div>
                 </button>
             </div>
 
@@ -529,119 +649,269 @@ export default function ProformaInvoice() {
                         </div>
                     </div>
 
-                    {/* Section 2: Device & Scope of Work */}
+                    {/* Section 2: Quotation Subject / Scope */}
                     <div className="card" style={{ padding: '1.25rem' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.65rem', marginBottom: '1rem' }}>
-                            <Wrench size={18} color="var(--accent)" />
-                            <h3 style={{ margin: 0, fontSize: '1.05rem' }}>2. Device / Service Details</h3>
+                            {quoteMode === 'sales' ? <ShoppingBag size={18} color="var(--accent)" /> : <Wrench size={18} color="var(--accent)" />}
+                            <h3 style={{ margin: 0, fontSize: '1.05rem' }}>
+                                {quoteMode === 'sales' ? '2. Quotation Subject (No Device Intake)' : '2. Device Details (Intake for Service)'}
+                            </h3>
                         </div>
 
-                        {/* Device / Item Name */}
-                        <div style={{ marginBottom: '0.85rem' }}>
-                            <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Item / Device Name *</label>
-                            <input
-                                type="text"
-                                required
-                                value={jobData.itemName}
-                                onChange={e => setJobData({ ...jobData, itemName: e.target.value })}
-                                placeholder="e.g. Dell Inspiron 15 3000 / Canon LBP 2900"
-                                style={{ width: '100%', padding: '0.6rem 0.75rem', background: 'var(--bg-color)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '6px', boxSizing: 'border-box' }}
-                            />
-                        </div>
+                        {quoteMode === 'sales' ? (
+                            <>
+                                {/* Quick Preset Buttons */}
+                                <div style={{ marginBottom: '0.85rem' }}>
+                                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Quick Presets (Click to Load):</label>
+                                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                        {[
+                                            { label: '🖥️ Custom Build PC', title: 'Custom Desktop PC Build', cat: 'Custom PC', notes: 'Components carry 1-3 Years Manufacturer Warranty. Assembly, burn-in testing & OS setup included.', fee: 1000 },
+                                            { label: '💼 Office Desktop PC', title: 'Intel Core i5 Office Desktop PC', cat: 'Desktop PC', notes: 'Standard 3 Years Manufacturer Warranty on components. Pre-configured & ready to use.', fee: 500 },
+                                            { label: '💻 New Laptop Sale', title: 'New Laptop Package', cat: 'Laptop', notes: '1 Year Onsite Brand Warranty + Free initial setup and driver installation.', fee: 0 },
+                                            { label: '🖨️ Printer & Supplies', title: 'Multifunction Laser/Tank Printer', cat: 'Printer', notes: '1 Year Standard Brand Warranty. Includes initial starter ink/toner pack.', fee: 0 },
+                                            { label: '📹 CCTV Setup', title: 'Security CCTV & DVR System', cat: 'CCTV / Security', notes: 'Includes 2 Years Camera & DVR Warranty, complete cabling & remote viewing setup.', fee: 1500 },
+                                            { label: '📦 Hardware Components', title: 'Computer Hardware & Peripherals', cat: 'Components', notes: 'Standard manufacturer warranty applicable on all items.', fee: 0 }
+                                        ].map(preset => (
+                                            <button
+                                                key={preset.label}
+                                                type="button"
+                                                onClick={() => applySalesPreset(preset.title, preset.cat, preset.notes, preset.fee)}
+                                                style={{
+                                                    background: salesData.title === preset.title ? 'var(--accent)' : 'var(--bg-color)',
+                                                    color: salesData.title === preset.title ? '#000' : 'var(--text-primary)',
+                                                    border: '1px solid var(--border-color)',
+                                                    padding: '4px 8px',
+                                                    borderRadius: '4px',
+                                                    fontSize: '0.78rem',
+                                                    cursor: 'pointer',
+                                                    fontWeight: salesData.title === preset.title ? 'bold' : 'normal'
+                                                }}
+                                            >
+                                                {preset.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
 
-                        {/* Brand & Model */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '0.85rem' }}>
-                            <div>
-                                <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Brand</label>
-                                <input
-                                    type="text"
-                                    value={jobData.brand}
-                                    onChange={e => setJobData({ ...jobData, brand: e.target.value })}
-                                    placeholder="e.g. Dell, HP, Canon"
-                                    style={{ width: '100%', padding: '0.6rem 0.75rem', background: 'var(--bg-color)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '6px', boxSizing: 'border-box' }}
-                                />
-                            </div>
-                            <div>
-                                <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Model / Spec</label>
-                                <input
-                                    type="text"
-                                    value={jobData.model}
-                                    onChange={e => setJobData({ ...jobData, model: e.target.value })}
-                                    placeholder="e.g. Core i5 11th Gen"
-                                    style={{ width: '100%', padding: '0.6rem 0.75rem', background: 'var(--bg-color)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '6px', boxSizing: 'border-box' }}
-                                />
-                            </div>
-                        </div>
+                                {/* Quotation Title */}
+                                <div style={{ marginBottom: '0.85rem' }}>
+                                    <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Quotation Title / Configuration Name *</label>
+                                    <input
+                                        type="text"
+                                        required
+                                        value={salesData.title}
+                                        onChange={e => setSalesData({ ...salesData, title: e.target.value })}
+                                        placeholder="e.g. Custom Gaming PC (Core i7 / 16GB / RTX 4060)"
+                                        style={{ width: '100%', padding: '0.6rem 0.75rem', background: 'var(--bg-color)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '6px', boxSizing: 'border-box', fontWeight: 'bold' }}
+                                    />
+                                </div>
 
-                        {/* Serial Number & Service Mode */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '0.85rem' }}>
-                            <div>
-                                <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Serial Number</label>
-                                <input
-                                    type="text"
-                                    value={jobData.serialNo}
-                                    onChange={e => setJobData({ ...jobData, serialNo: e.target.value.toUpperCase() })}
-                                    placeholder="e.g. 5CD1234XYZ or —"
-                                    style={{ width: '100%', padding: '0.6rem 0.75rem', background: 'var(--bg-color)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '6px', boxSizing: 'border-box' }}
-                                />
-                            </div>
-                            <div>
-                                <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Service Mode</label>
-                                <select
-                                    value={jobData.serviceMode}
-                                    onChange={e => setJobData({ ...jobData, serviceMode: e.target.value })}
-                                    style={{ width: '100%', padding: '0.6rem 0.75rem', background: 'var(--bg-color)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '6px', boxSizing: 'border-box', cursor: 'pointer' }}
-                                >
-                                    <option value="On Center">On Center (Carry-in)</option>
-                                    <option value="On-Site">On-Site Service</option>
-                                </select>
-                            </div>
-                        </div>
+                                {/* Category & Fulfillment Mode */}
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '0.85rem' }}>
+                                    <div>
+                                        <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Category</label>
+                                        <select
+                                            value={salesData.category}
+                                            onChange={e => setSalesData({ ...salesData, category: e.target.value })}
+                                            style={{ width: '100%', padding: '0.6rem 0.75rem', background: 'var(--bg-color)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '6px', boxSizing: 'border-box', cursor: 'pointer' }}
+                                        >
+                                            <option value="Custom PC">Custom PC Build</option>
+                                            <option value="Laptop">New Laptop</option>
+                                            <option value="Desktop PC">Branded Desktop PC</option>
+                                            <option value="Printer">Printer / Scanner</option>
+                                            <option value="CCTV / Security">CCTV & Surveillance</option>
+                                            <option value="Components">Hardware Components</option>
+                                            <option value="Networking">Networking Equipment</option>
+                                            <option value="General">General Merchandise</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Delivery / Fulfillment</label>
+                                        <select
+                                            value={salesData.fulfillment}
+                                            onChange={e => setSalesData({ ...salesData, fulfillment: e.target.value })}
+                                            style={{ width: '100%', padding: '0.6rem 0.75rem', background: 'var(--bg-color)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '6px', boxSizing: 'border-box', cursor: 'pointer' }}
+                                        >
+                                            <option value="Direct Sale / Delivery">Direct Sale / In-Store Pickup</option>
+                                            <option value="On-Site Delivery & Setup">On-Site Delivery & Installation</option>
+                                            <option value="Courier / Dispatch">Courier / Freight Dispatch</option>
+                                        </select>
+                                    </div>
+                                </div>
 
-                        {/* Scope of Work / Estimated Repairs */}
-                        <div>
-                            <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Scope of Work / Repairs Description</label>
-                            <textarea
-                                rows={2}
-                                value={jobData.issue}
-                                onChange={e => setJobData({ ...jobData, issue: e.target.value })}
-                                placeholder="Describe the proposed repair work, upgrades, or services..."
-                                style={{ width: '100%', padding: '0.6rem 0.75rem', background: 'var(--bg-color)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '6px', boxSizing: 'border-box', resize: 'vertical' }}
-                            />
-                        </div>
+                                {/* Quotation Scope / Warranty Notes */}
+                                <div>
+                                    <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Quotation Notes / Warranty Terms</label>
+                                    <textarea
+                                        rows={3}
+                                        value={salesData.notes}
+                                        onChange={e => setSalesData({ ...salesData, notes: e.target.value })}
+                                        placeholder="Warranty details, payment schedule, delivery timeline..."
+                                        style={{ width: '100%', padding: '0.6rem 0.75rem', background: 'var(--bg-color)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '6px', boxSizing: 'border-box', resize: 'vertical' }}
+                                    />
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                {/* Device / Item Name */}
+                                <div style={{ marginBottom: '0.85rem' }}>
+                                    <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Item / Device Name *</label>
+                                    <input
+                                        type="text"
+                                        required
+                                        value={jobData.itemName}
+                                        onChange={e => setJobData({ ...jobData, itemName: e.target.value })}
+                                        placeholder="e.g. Dell Inspiron 15 / Canon LBP 2900"
+                                        style={{ width: '100%', padding: '0.6rem 0.75rem', background: 'var(--bg-color)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '6px', boxSizing: 'border-box' }}
+                                    />
+                                </div>
+
+                                {/* Brand & Model */}
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '0.85rem' }}>
+                                    <div>
+                                        <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Brand</label>
+                                        <input
+                                            type="text"
+                                            value={jobData.brand}
+                                            onChange={e => setJobData({ ...jobData, brand: e.target.value })}
+                                            placeholder="e.g. Dell, HP, Canon"
+                                            style={{ width: '100%', padding: '0.6rem 0.75rem', background: 'var(--bg-color)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '6px', boxSizing: 'border-box' }}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Model / Spec</label>
+                                        <input
+                                            type="text"
+                                            value={jobData.model}
+                                            onChange={e => setJobData({ ...jobData, model: e.target.value })}
+                                            placeholder="e.g. Core i5 11th Gen"
+                                            style={{ width: '100%', padding: '0.6rem 0.75rem', background: 'var(--bg-color)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '6px', boxSizing: 'border-box' }}
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Serial Number & Service Mode */}
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '0.85rem' }}>
+                                    <div>
+                                        <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Serial Number</label>
+                                        <input
+                                            type="text"
+                                            value={jobData.serialNo}
+                                            onChange={e => setJobData({ ...jobData, serialNo: e.target.value.toUpperCase() })}
+                                            placeholder="e.g. 5CD1234XYZ or —"
+                                            style={{ width: '100%', padding: '0.6rem 0.75rem', background: 'var(--bg-color)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '6px', boxSizing: 'border-box' }}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Service Mode</label>
+                                        <select
+                                            value={jobData.serviceMode}
+                                            onChange={e => setJobData({ ...jobData, serviceMode: e.target.value })}
+                                            style={{ width: '100%', padding: '0.6rem 0.75rem', background: 'var(--bg-color)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '6px', boxSizing: 'border-box', cursor: 'pointer' }}
+                                        >
+                                            <option value="On Center">On Center (Carry-in)</option>
+                                            <option value="On-Site">On-Site Service</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                {/* Scope of Work / Estimated Repairs */}
+                                <div>
+                                    <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Reported Problem / Proposed Repairs</label>
+                                    <textarea
+                                        rows={3}
+                                        value={jobData.issue}
+                                        onChange={e => setJobData({ ...jobData, issue: e.target.value })}
+                                        placeholder="Describe the diagnosis, proposed repair work, upgrades, or servicing..."
+                                        style={{ width: '100%', padding: '0.6rem 0.75rem', background: 'var(--bg-color)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '6px', boxSizing: 'border-box', resize: 'vertical' }}
+                                    />
+                                </div>
+                            </>
+                        )}
                     </div>
                 </div>
 
-                {/* Section 3: Billing, Spares & GST Breakdown */}
+                {/* Section 3: Billing, Components, Spares & GST Breakdown */}
                 <div className="card" style={{ padding: '1.25rem', marginBottom: '1.5rem' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.65rem', marginBottom: '1rem' }}>
                         <Package size={18} color="var(--accent)" />
-                        <h3 style={{ margin: 0, fontSize: '1.05rem' }}>3. Spares, Labor Charges & GST Calculation</h3>
+                        <h3 style={{ margin: 0, fontSize: '1.05rem' }}>
+                            {quoteMode === 'sales' ? '3. Hardware Components, Products & Assembly Fee' : '3. Spares, Labor Charges & GST Calculation'}
+                        </h3>
                     </div>
 
-                    {/* Labor Charge */}
-                    <div style={{ maxWidth: '300px', marginBottom: '1.25rem' }}>
-                        <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Service / Labor Charge (₹)</label>
+                    {/* Labor / Assembly Charge */}
+                    <div style={{ maxWidth: '380px', marginBottom: '1.25rem' }}>
+                        <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>
+                            {quoteMode === 'sales' ? 'Assembly, Testing & Installation Charges (₹)' : 'Service / Labor Charge (₹)'}
+                        </label>
                         <input
                             type="number"
                             min="0"
                             step="0.01"
                             value={serviceFee}
                             onChange={e => setServiceFee(e.target.value)}
-                            placeholder="e.g. 500"
+                            placeholder={quoteMode === 'sales' ? 'Optional (e.g. 500 or 0)' : 'e.g. 500'}
                             style={{ width: '100%', padding: '0.6rem 0.75rem', background: 'var(--bg-color)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '6px', boxSizing: 'border-box', fontSize: '1rem', fontWeight: 'bold' }}
                         />
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '3px' }}>
+                            {quoteMode === 'sales' ? 'Enter 0 or leave empty if assembly is free or not applicable.' : 'Technician diagnostic & repair labor charges.'}
+                        </div>
                     </div>
 
-                    {/* Spare Parts Picker */}
+                    {/* Items / Spares Entry Box */}
                     <div style={{ background: '#f6f3eb', padding: '1rem', borderRadius: '6px', border: '1px solid var(--border-color)', marginBottom: '1rem' }}>
                         <div style={{ fontSize: '0.85rem', fontWeight: 'bold', color: 'var(--text-primary)', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <Plus size={16} color="var(--accent)" /> Add Spare Parts to Quotation
+                            <Plus size={16} color="var(--accent)" /> 
+                            {quoteMode === 'sales' ? 'Add Item / Hardware Component to Quotation' : 'Add Spare Parts to Quotation'}
                         </div>
+
+                        {/* Custom PC Component Quick-Tags (Shown in Sales Mode) */}
+                        {quoteMode === 'sales' && (
+                            <div style={{ marginBottom: '0.75rem' }}>
+                                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                    <Cpu size={14} color="var(--accent)" />
+                                    <b>Custom PC Build Component Helpers</b> (Click to quickly prefix item):
+                                </div>
+                                <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
+                                    {[
+                                        { label: 'Processor (CPU)', hsn: '8473' },
+                                        { label: 'Motherboard', hsn: '8473' },
+                                        { label: 'RAM Memory', hsn: '8473' },
+                                        { label: 'SSD / Storage', hsn: '8471' },
+                                        { label: 'Graphics Card (GPU)', hsn: '8473' },
+                                        { label: 'Power Supply (SMPS)', hsn: '8504' },
+                                        { label: 'Cabinet / Case', hsn: '8473' },
+                                        { label: 'Monitor Display', hsn: '8528' },
+                                        { label: 'Keyboard & Mouse', hsn: '8471' },
+                                        { label: 'UPS Backup', hsn: '8504' }
+                                    ].map(tag => (
+                                        <button
+                                            key={tag.label}
+                                            type="button"
+                                            onClick={() => handleComponentTagClick(tag.label, tag.hsn)}
+                                            style={{
+                                                background: 'rgba(0,0,0,0.05)',
+                                                border: '1px dashed var(--border-color)',
+                                                padding: '3px 8px',
+                                                borderRadius: '4px',
+                                                fontSize: '0.74rem',
+                                                cursor: 'pointer',
+                                                color: 'var(--text-primary)'
+                                            }}
+                                        >
+                                            + {tag.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
 
                         {/* Inventory Dropdown Selector */}
                         <div style={{ marginBottom: '0.75rem' }}>
-                            <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>Pick from Stock Catalog (Optional):</label>
+                            <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>
+                                Pick from Catalog / Stock Inventory (Optional):
+                            </label>
                             <select
                                 value={selectedInvId}
                                 onChange={e => handleSelectInventoryItem(e.target.value)}
@@ -659,17 +929,17 @@ export default function ProformaInvoice() {
                         {/* Part entry inputs */}
                         <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr auto', gap: '8px', alignItems: 'flex-end' }}>
                             <div>
-                                <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>Part Name / Description</label>
+                                <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>Item / Component Name *</label>
                                 <input
                                     type="text"
                                     value={newSpareName}
                                     onChange={e => setNewSpareName(e.target.value)}
-                                    placeholder="e.g. 512GB NVMe SSD"
+                                    placeholder={quoteMode === 'sales' ? "e.g. Intel Core i5 12400F Processor" : "e.g. 512GB NVMe SSD"}
                                     style={{ width: '100%', padding: '0.5rem', background: 'var(--bg-color)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '4px', boxSizing: 'border-box', fontSize: '0.85rem' }}
                                 />
                             </div>
                             <div>
-                                <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>Unit Price (₹)</label>
+                                <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>Unit Price (₹) *</label>
                                 <input
                                     type="number"
                                     min="0"
@@ -711,14 +981,14 @@ export default function ProformaInvoice() {
                         </div>
                     </div>
 
-                    {/* Spares Table */}
+                    {/* Spares / Components Table */}
                     {sparesList.length > 0 ? (
                         <div className="table-responsive" style={{ marginBottom: '1.25rem' }}>
                             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.88rem' }}>
                                 <thead>
                                     <tr style={{ background: '#f6f3eb', borderBottom: '1px solid var(--border-color)', textAlign: 'left', color: 'var(--text-secondary)', textTransform: 'uppercase', fontSize: '0.75rem' }}>
                                         <th style={{ padding: '0.6rem 0.75rem' }}>#</th>
-                                        <th style={{ padding: '0.6rem 0.75rem' }}>Item Description</th>
+                                        <th style={{ padding: '0.6rem 0.75rem' }}>Description of Goods / Components</th>
                                         <th style={{ padding: '0.6rem 0.75rem' }}>HSN</th>
                                         <th style={{ padding: '0.6rem 0.75rem', textAlign: 'center' }}>Qty</th>
                                         <th style={{ padding: '0.6rem 0.75rem', textAlign: 'right' }}>Unit Rate (₹)</th>
@@ -754,7 +1024,9 @@ export default function ProformaInvoice() {
                         </div>
                     ) : (
                         <div style={{ color: 'var(--text-secondary)', fontStyle: 'italic', fontSize: '0.85rem', marginBottom: '1.25rem' }}>
-                            No spare parts added to this quote yet. You can add parts above or proceed with service charges only.
+                            {quoteMode === 'sales' 
+                                ? 'No components or hardware items added yet. Click component helpers or use the dropdown to add items.'
+                                : 'No spare parts added to this quote yet. You can add parts above or proceed with service charges only.'}
                         </div>
                     )}
 
@@ -783,7 +1055,7 @@ export default function ProformaInvoice() {
                                     onChange={e => setGstRate(parseFloat(e.target.value))}
                                     style={{ width: '100%', padding: '0.55rem', background: 'var(--bg-color)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '6px', cursor: 'pointer' }}
                                 >
-                                    <option value="18">18% (Standard Computer & Tech Services)</option>
+                                    <option value="18">18% (Standard Hardware & Tech Services)</option>
                                     <option value="12">12% (Electronics / Selected Hardware)</option>
                                     <option value="5">5% (Special / Concessional)</option>
                                     <option value="0">0% (Nil Rated)</option>
@@ -795,13 +1067,19 @@ export default function ProformaInvoice() {
                         <div style={{ borderLeft: '1px solid var(--border-color)', paddingLeft: '1.5rem' }}>
                             <div style={{ fontWeight: 'bold', fontSize: '0.9rem', marginBottom: '0.75rem', color: 'var(--text-primary)' }}>Quotation Total Summary</div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '0.88rem' }}>
-                                <span style={{ color: 'var(--text-secondary)' }}>Service / Labor Charge:</span>
-                                <span>₹{sFee.toFixed(2)}</span>
-                            </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '0.88rem' }}>
-                                <span style={{ color: 'var(--text-secondary)' }}>Spare Parts Total:</span>
+                                <span style={{ color: 'var(--text-secondary)' }}>
+                                    {quoteMode === 'sales' ? 'Goods / Hardware Total:' : 'Spare Parts Total:'}
+                                </span>
                                 <span>₹{sparesTotal.toFixed(2)}</span>
                             </div>
+                            {sFee > 0 && (
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '0.88rem' }}>
+                                    <span style={{ color: 'var(--text-secondary)' }}>
+                                        {quoteMode === 'sales' ? 'Assembly & Testing Fee:' : 'Service / Labor Charge:'}
+                                    </span>
+                                    <span>₹{sFee.toFixed(2)}</span>
+                                </div>
+                            )}
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', fontSize: '0.88rem', borderTop: '1px solid var(--border-color)', paddingTop: '4px', fontWeight: '600' }}>
                                 <span>Taxable Total:</span>
                                 <span>₹{taxableAmount.toFixed(2)}</span>

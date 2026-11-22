@@ -89,6 +89,14 @@ export default function A4PrintModal({
     const stateName = config.stateName || 'Kerala';
     const stateCode = config.stateCode || '32';
 
+    const isSalesQuotation = docType === 'proforma' && (
+        job.service_type === 'Sales' || 
+        job.service_type === 'Quotation' ||
+        job.is_device_intaken === 0 || 
+        invoice.invoice_type === 'SALES_PROFORMA' ||
+        (job.issue && (job.issue.toLowerCase().includes('quotation') || job.issue.toLowerCase().includes('custom pc') || job.issue.toLowerCase().includes('new device') || job.issue.toLowerCase().includes('sales')))
+    );
+
     const handlePrint = () => {
         window.print();
     };
@@ -218,7 +226,7 @@ export default function A4PrintModal({
                                 {docType === 'proforma' && 'PROFORMA INVOICE'}
                             </div>
                             <div style={{ fontSize: '10.5px', color: '#64748b', marginTop: '3px' }}>
-                                {docType === 'proforma' && '(ESTIMATE / QUOTATION)'}
+                                {docType === 'proforma' && (isSalesQuotation ? '(SALES ESTIMATE / QUOTATION)' : '(ESTIMATE / QUOTATION)')}
                                 {docType === 'service_report' && '(WORK & TESTING SUMMARY)'}
                             </div>
                         </div>
@@ -238,15 +246,25 @@ export default function A4PrintModal({
                     fontSize: '11.5px'
                 }}>
                     <div>
-                        <div><b>{docType === 'proforma' ? 'Proforma Invoice #' : 'Receipt #'}:</b> {docType === 'proforma' ? proformaNo : receiptNo}</div>
-                        <div><b>Tracking CSR #:</b> #{csrNumber}</div>
+                        <div><b>{isSalesQuotation ? 'Quotation / Proforma #:' : (docType === 'proforma' ? 'Proforma Invoice #:' : 'Receipt #:')}</b> {docType === 'proforma' ? proformaNo : receiptNo}</div>
+                        <div><b>Ref CSR #:</b> #{csrNumber}</div>
                         <div><b>Date of Issue:</b> {todayStr}</div>
                         {docType === 'proforma' && <div><b>Valid Until:</b> {validUntilDate}</div>}
                     </div>
                     <div>
-                        <div><b>Service Mode:</b> {job.service_mode || 'On Center'}</div>
-                        {config.showTechnician && <div><b>Technician / Engr:</b> {job.created_by || 'Admin'}</div>}
-                        <div><b>Intake Date:</b> {new Date(job.created_at).toLocaleDateString('en-GB').replace(/\//g, '-')}</div>
+                        {isSalesQuotation ? (
+                            <>
+                                <div><b>Quotation Type:</b> {job.item_name ? 'New Hardware / Custom PC' : 'Product Sales'}</div>
+                                <div><b>Fulfillment:</b> {job.service_mode || 'Direct Sale / Delivery'}</div>
+                                {config.showTechnician && <div><b>Prepared By:</b> {job.created_by || 'Admin'}</div>}
+                            </>
+                        ) : (
+                            <>
+                                <div><b>Service Mode:</b> {job.service_mode || 'On Center'}</div>
+                                {config.showTechnician && <div><b>Technician / Engr:</b> {job.created_by || 'Admin'}</div>}
+                                <div><b>Intake Date:</b> {new Date(job.created_at).toLocaleDateString('en-GB').replace(/\//g, '-')}</div>
+                            </>
+                        )}
                     </div>
                 </div>
 
@@ -264,25 +282,39 @@ export default function A4PrintModal({
                         {invoice.customer_gstin && <div><b>Customer GSTIN:</b> {invoice.customer_gstin}</div>}
                     </div>
 
-                    {/* Device */}
+                    {/* Device or Quotation Subject */}
                     <div style={{ border: '1px solid #cbd5e1', borderRadius: '4px', padding: '8px 10px', fontSize: '11.5px' }}>
                         <div style={{ fontWeight: 'bold', borderBottom: '1px solid #e2e8f0', paddingBottom: '3px', marginBottom: '4px', color: '#0f172a' }}>
-                            DEVICE / PRODUCT DETAILS
+                            {isSalesQuotation ? 'QUOTATION SUBJECT / SPECIFICATION' : 'DEVICE / PRODUCT DETAILS'}
                         </div>
-                        <div><b>Item / Device:</b> {job.item_name}</div>
-                        {(job.brand || job.model) && (
-                            <div><b>Brand / Model:</b> {[job.brand, job.model].filter(Boolean).join(' ')}</div>
+                        {isSalesQuotation ? (
+                            <>
+                                <div><b>Quotation For:</b> {job.item_name || 'New Hardware / Custom PC'}</div>
+                                {(job.brand || job.model) && (
+                                    <div><b>Brand / Model:</b> {[job.brand, job.model].filter(Boolean).join(' ')}</div>
+                                )}
+                                {job.issue && <div><b>Specifications / Scope:</b> {job.issue}</div>}
+                            </>
+                        ) : (
+                            <>
+                                <div><b>Item / Device:</b> {job.item_name}</div>
+                                {(job.brand || job.model) && (
+                                    <div><b>Brand / Model:</b> {[job.brand, job.model].filter(Boolean).join(' ')}</div>
+                                )}
+                                {config.showSerialNo && <div><b>Serial No:</b> {job.serial_no || '—'}</div>}
+                                {job.accessories && <div><b>Accessories:</b> {job.accessories}</div>}
+                            </>
                         )}
-                        {config.showSerialNo && <div><b>Serial No:</b> {job.serial_no || '—'}</div>}
-                        {job.accessories && <div><b>Accessories:</b> {job.accessories}</div>}
                     </div>
                 </div>
 
-                {/* Complaint / Issue Box */}
-                <div style={{ border: '1px solid #cbd5e1', borderRadius: '4px', padding: '8px 10px', marginBottom: '12px', fontSize: '11.5px' }}>
-                    <div style={{ fontWeight: 'bold', color: '#0f172a', marginBottom: '2px' }}>REPORTED COMPLAINT / PROBLEM:</div>
-                    <div style={{ color: '#334155' }}>{job.issue || 'No specific issue specified.'}</div>
-                </div>
+                {/* Complaint / Issue Box (Only for Repair Intakes) */}
+                {!isSalesQuotation && (
+                    <div style={{ border: '1px solid #cbd5e1', borderRadius: '4px', padding: '8px 10px', marginBottom: '12px', fontSize: '11.5px' }}>
+                        <div style={{ fontWeight: 'bold', color: '#0f172a', marginBottom: '2px' }}>REPORTED COMPLAINT / PROBLEM:</div>
+                        <div style={{ color: '#334155' }}>{job.issue || 'No specific issue specified.'}</div>
+                    </div>
+                )}
 
                 {/* Document-Specific Body */}
                 {docType === 'service_report' ? (
@@ -355,8 +387,8 @@ export default function A4PrintModal({
                                     <tr style={{ borderBottom: '1px solid #e2e8f0' }}>
                                         <td style={{ padding: '6px 6px', textAlign: 'center' }}>1</td>
                                         <td style={{ padding: '6px 6px' }}>
-                                            <b>Service & Repair Labor</b>
-                                            <div style={{ fontSize: '10px', color: '#64748b' }}>Technical diagnostic & repair charges</div>
+                                            <b>{isSalesQuotation ? 'Assembly, Testing & Setup Labor' : 'Service & Repair Labor'}</b>
+                                            <div style={{ fontSize: '10px', color: '#64748b' }}>{isSalesQuotation ? 'Hardware assembly, configuration & testing charges' : 'Technical diagnostic & repair charges'}</div>
                                         </td>
                                         <td style={{ padding: '6px 6px', textAlign: 'center' }}>998713</td>
                                         <td style={{ padding: '6px 6px', textAlign: 'center' }}>1</td>

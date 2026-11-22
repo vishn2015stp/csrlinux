@@ -181,7 +181,7 @@ export default function Dashboard() {
         : allComplaints;
 
     // Derived stats lists
-    const filteredPending = filteredComplaints.filter(c => c.status !== 'Delivered' && c.status !== 'Completed' && c.status !== 'Returned');
+    const filteredPending = filteredComplaints.filter(c => c.status !== 'Delivered' && c.status !== 'Completed' && c.status !== 'Returned' && c.status !== 'Quotation' && c.service_type !== 'Sales');
     const filteredPendingWorks = filteredPending.filter(c => c.service_type !== 'On-Site' && c.service_mode !== 'Onsite');
     const filteredPendingOnSite = filteredPending.filter(c => c.service_type === 'On-Site' || c.service_mode === 'Onsite');
     
