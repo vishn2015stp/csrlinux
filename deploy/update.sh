@@ -100,7 +100,7 @@ systemctl restart "$SERVICE_NAME"
 
 healthy=0
 for _ in $(seq 1 30); do
-    if curl -fsS "http://127.0.0.1:$APP_PORT/api/settings" >/dev/null 2>&1; then
+    if curl -fsSL -k "http://127.0.0.1:$APP_PORT/api/settings" >/dev/null 2>&1; then
         healthy=1
         break
     fi

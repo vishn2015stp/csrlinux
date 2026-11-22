@@ -5,6 +5,8 @@ const db = require('./db.js');
 const { randomUUID: uuidv4 } = require('crypto');
 const path = require('path');
 const fs = require('fs');
+const https = require('https');
+const http = require('http');
 const { generatePendingBookPdf } = require('./pdfGenerator.js');
 
 const envPath = path.resolve(__dirname, '..', '.env');
@@ -32,6 +34,25 @@ function updateEnvDatabaseUrl(newDatabaseUrl, dbSsl) {
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);
+
+// Trust proxy headers (X-Forwarded-Proto, X-Forwarded-For)
+app.set('trust proxy', 1);
+
+// Force HTTPS redirect middleware
+app.use((req, res, next) => {
+    const isHttps = req.secure || req.headers['x-forwarded-proto'] === 'https' || req.socket.encrypted;
+    const isLocalhost = req.hostname === 'localhost' || req.hostname === '127.0.0.1' || req.ip === '127.0.0.1' || req.ip === '::1';
+
+    // If HTTPS is forced and request arrives over plain HTTP from a non-localhost client, redirect to HTTPS
+    if (!isHttps && !isLocalhost && (process.env.FORCE_HTTPS === '1' || process.env.USE_HTTPS === '1' || process.env.NODE_ENV === 'production')) {
+        const hostHeader = req.headers.host || '';
+        const hostWithoutPort = hostHeader.split(':')[0];
+        const httpsPort = process.env.HTTPS_PORT || (process.env.USE_HTTPS === '1' && PORT !== 80 ? PORT : '');
+        const portSuffix = (httpsPort && String(httpsPort) !== '443') ? `:${httpsPort}` : '';
+        return res.redirect(301, `https://${hostWithoutPort}${portSuffix}${req.originalUrl || req.url}`);
+    }
+    next();
+});
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
@@ -1029,10 +1050,26 @@ app.use((req, res, next) => {
 // Start local listener if not running as a Vercel Serverless Function
 if (!process.env.VERCEL) {
     db.ensureInitialized().then(() => {
-        app.listen(PORT, '0.0.0.0', () => {
-            console.log(`Hyper-CSR Server running on port ${PORT}`);
-            console.log(`Access locally: http://localhost:${PORT}`);
-        });
+        const sslKey = process.env.SSL_KEY_PATH;
+        const sslCert = process.env.SSL_CERT_PATH;
+        let server;
+        if (sslKey && sslCert && fs.existsSync(sslKey) && fs.existsSync(sslCert)) {
+            const httpsOptions = {
+                key: fs.readFileSync(sslKey),
+                cert: fs.readFileSync(sslCert)
+            };
+            server = https.createServer(httpsOptions, app);
+            server.listen(PORT, '0.0.0.0', () => {
+                console.log(`Hyper-CSR Secure HTTPS Server running on port ${PORT}`);
+                console.log(`Access locally: https://localhost:${PORT}`);
+            });
+        } else {
+            server = http.createServer(app);
+            server.listen(PORT, '0.0.0.0', () => {
+                console.log(`Hyper-CSR Server running on port ${PORT}`);
+                console.log(`Access locally: http://localhost:${PORT}`);
+            });
+        }
     }).catch(console.error);
 }
 

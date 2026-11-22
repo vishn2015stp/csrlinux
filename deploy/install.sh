@@ -191,7 +191,7 @@ fi
 log "Waiting for the application to answer..."
 healthy=0
 for _ in $(seq 1 30); do
-    if curl -fsS "http://127.0.0.1:$APP_PORT/api/settings" >/dev/null 2>&1; then
+    if curl -fsSL -k "http://127.0.0.1:$APP_PORT/api/settings" >/dev/null 2>&1; then
         healthy=1
         break
     fi
@@ -208,6 +208,7 @@ $(if [[ "$WITH_NGINX" == "1" ]]; then printf '  Proxy URL     : http://%s (serve
   Service       : $SERVICE_NAME (systemctl status $SERVICE_NAME)
   Logs          : journalctl -u $SERVICE_NAME -f
   Updates       : sudo $APP_DIR/deploy/update.sh
+  Enable HTTPS  : sudo $APP_DIR/deploy/setup-ssl.sh
 
   Default login : admin / password123
   >>> Change this password immediately in Settings -> Password. <<<
