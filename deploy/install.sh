@@ -72,18 +72,21 @@ log "Using Node.js $(node -v) and npm $(npm -v)."
 # ------------------------------------------------------------------ app user
 if ! id -u "$APP_USER" >/dev/null 2>&1; then
     log "Creating system user '$APP_USER'..."
-    useradd --system --create-home --home-dir "$APP_DIR" --shell /bin/bash "$APP_USER"
+    useradd --system --no-create-home --home-dir "$APP_DIR" --shell /bin/bash "$APP_USER"
 fi
 
 # ------------------------------------------------------------------ source
 if [[ -d "$APP_DIR/.git" ]]; then
     log "Repository already present at $APP_DIR (run deploy/update.sh to update it)."
 else
-    if [[ -e "$APP_DIR" ]] && [[ -n "$(ls -A "$APP_DIR" 2>/dev/null)" ]]; then
-        die "$APP_DIR is not empty and is not a git repository. Move it aside first."
+    if [[ -d "$APP_DIR" ]]; then
+        if [[ -f "$APP_DIR/package.json" ]] || [[ -d "$APP_DIR/src" ]]; then
+            die "$APP_DIR is not empty and is not a git repository. Move it aside first."
+        fi
+        log "Cleaning up uninitialized/skeleton directory $APP_DIR..."
+        rm -rf "$APP_DIR"
     fi
     log "Cloning $REPO_URL (branch: $BRANCH) into $APP_DIR..."
-    mkdir -p "$APP_DIR"
     git clone --branch "$BRANCH" --single-branch "$REPO_URL" "$APP_DIR"
 fi
 chown -R "$APP_USER:$APP_USER" "$APP_DIR"
