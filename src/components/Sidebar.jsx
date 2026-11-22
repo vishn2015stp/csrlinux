@@ -39,7 +39,7 @@ export default function Sidebar({ isOpen, closeSidebar }) {
                 </NavLink>
                 <NavLink to="/intake" onClick={handleNavClick} className={({ isActive }) => isActive ? "nav-item active" : "nav-item"}>
                     <PlusCircle size={20} />
-                    Service Intake
+                    New Service Request
                 </NavLink>
                 <NavLink to="/proforma" onClick={handleNavClick} className={({ isActive }) => isActive ? "nav-item active" : "nav-item"}>
                     <FileText size={20} />
