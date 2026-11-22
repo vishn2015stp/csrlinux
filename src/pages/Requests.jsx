@@ -153,8 +153,32 @@ export default function Requests() {
             <div className="non-print">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '2rem' }}>
                     <h1 style={{ margin: 0, fontSize: '1.8rem', color: 'var(--text-primary)' }}>Service Request Directory</h1>
-                    <div style={{ background: '#f6f3eb', padding: '0.5rem 1rem', borderRadius: '4px', fontSize: '0.9rem', border: '1px solid var(--border-color)' }}>
-                        Total Records: <span style={{ color: '#35a7e6', fontWeight: 'bold' }}>{filteredRequests.length}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                        <a
+                            href="/api/pending-book/pdf"
+                            download="Pending_Book.pdf"
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                background: 'var(--panel-bg)',
+                                color: 'var(--text-primary)',
+                                border: '1px solid var(--border-color)',
+                                padding: '0.5rem 0.9rem',
+                                borderRadius: '4px',
+                                fontSize: '0.85rem',
+                                fontWeight: '600',
+                                textDecoration: 'none',
+                                cursor: 'pointer'
+                            }}
+                            title="Download official Pending Book report in PDF format"
+                        >
+                            <FileText size={16} color="#35a7e6" />
+                            Pending Book (PDF)
+                        </a>
+                        <div style={{ background: '#f6f3eb', padding: '0.5rem 1rem', borderRadius: '4px', fontSize: '0.9rem', border: '1px solid var(--border-color)' }}>
+                            Total Records: <span style={{ color: '#35a7e6', fontWeight: 'bold' }}>{filteredRequests.length}</span>
+                        </div>
                     </div>
                 </div>
 

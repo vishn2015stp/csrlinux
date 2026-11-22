@@ -107,6 +107,7 @@ else
     git clone --branch "$BRANCH" --single-branch "$REPO_URL" "$APP_DIR"
 fi
 chown -R "$APP_USER:$APP_USER" "$APP_DIR"
+git config --global --add safe.directory "$APP_DIR" >/dev/null 2>&1 || true
 
 # ------------------------------------------------------------------ database
 log "Waiting for PostgreSQL..."

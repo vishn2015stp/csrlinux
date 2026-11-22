@@ -35,6 +35,8 @@ run_as() {
 # shellcheck source=/dev/null
 source "$CONF"
 
+git config --global --add safe.directory "$APP_DIR" >/dev/null 2>&1 || true
+
 BACKUP_DIR="${BACKUP_DIR:-/var/backups/csrlinux}"
 FORCE="${FORCE:-0}"
 OLD_SHA=""

@@ -5,6 +5,7 @@ const db = require('./db.js');
 const { randomUUID: uuidv4 } = require('crypto');
 const path = require('path');
 const fs = require('fs');
+const { generatePendingBookPdf } = require('./pdfGenerator.js');
 
 const envPath = path.resolve(__dirname, '..', '.env');
 
@@ -699,6 +700,54 @@ app.get('/api/dashboard', async (req, res) => {
         });
     } catch (err) {
         res.status(500).json({ error: err.message });
+    }
+});
+
+// =============== PENDING BOOK PDF DOWNLOAD ===============
+app.get('/api/pending-book/pdf', async (req, res) => {
+    try {
+        let shopName = 'Hypertech Digital';
+        let shopAddress = '';
+        let shopPhone = '';
+        try {
+            const setRes = await db.query("SELECT setting_value FROM settings WHERE setting_key = 'print_settings'");
+            if (setRes.rows[0]?.setting_value) {
+                const conf = JSON.parse(setRes.rows[0].setting_value);
+                if (conf.shopName) shopName = conf.shopName;
+                if (conf.shopAddress) shopAddress = conf.shopAddress;
+                if (conf.shopPhone) shopPhone = conf.shopPhone;
+            }
+        } catch (e) {
+            console.error('Error loading shop settings for PDF:', e.message);
+        }
+
+        const result = await db.query(`
+            SELECT 
+                c.id, c.csr_number, c.item_name, c.issue, c.status, 
+                c.service_mode, c.service_type, c.created_at,
+                cust.name AS customer_name, cust.phone AS customer_phone
+            FROM complaints c
+            LEFT JOIN customers cust ON c.customer_id = cust.id
+            WHERE LOWER(TRIM(c.status)) NOT IN ('delivered', 'completed', 'returned')
+            ORDER BY c.created_at DESC
+        `);
+
+        const pdfBuffer = generatePendingBookPdf({
+            shopName,
+            shopAddress,
+            shopPhone,
+            generatedDate: new Date().toLocaleDateString('en-GB'),
+            records: result.rows
+        });
+
+        const filename = `Pending_Book_${new Date().toISOString().split('T')[0]}.pdf`;
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.setHeader('Content-Length', pdfBuffer.length);
+        res.send(pdfBuffer);
+    } catch (err) {
+        console.error('Error generating pending book PDF:', err);
+        res.status(500).json({ error: 'Failed to generate Pending Book PDF: ' + err.message });
     }
 });
 
