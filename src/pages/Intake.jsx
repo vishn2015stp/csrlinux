@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { createPortal } from 'react-dom'
 import { api } from '../lib/api'
 import { v4 as uuidv4 } from 'uuid'
@@ -7,6 +8,7 @@ import { Printer, X } from 'lucide-react'
 
 export default function Intake() {
     const { user } = useAuth()
+    const navigate = useNavigate()
     const [formData, setFormData] = useState({
         name: '', phone: '', email: '', address: '', location: '',
         itemName: '', brand: '', model: '', serialNo: '', issue: '', csrNumber: '', password: '', accessories: '', serviceMode: 'On Center',
@@ -189,6 +191,44 @@ export default function Intake() {
 
     return (
         <div className="container">
+            {/* Top Switcher Navigation */}
+            <div className="non-print" style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.5rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>
+                <button
+                    onClick={() => navigate('/intake')}
+                    style={{
+                        background: 'transparent',
+                        border: 'none',
+                        padding: '0.65rem 1.25rem',
+                        borderBottom: '3px solid var(--accent)',
+                        color: 'var(--accent)',
+                        fontWeight: 'bold',
+                        fontSize: '0.95rem',
+                        cursor: 'pointer',
+                        borderRadius: 0,
+                        margin: 0
+                    }}
+                >
+                    📋 New Service Request
+                </button>
+                <button
+                    onClick={() => navigate('/proforma')}
+                    style={{
+                        background: 'transparent',
+                        border: 'none',
+                        padding: '0.65rem 1.25rem',
+                        borderBottom: '3px solid transparent',
+                        color: 'var(--text-secondary)',
+                        fontWeight: '600',
+                        fontSize: '0.95rem',
+                        cursor: 'pointer',
+                        borderRadius: 0,
+                        margin: 0
+                    }}
+                >
+                    💼 New Proforma Invoice (GST)
+                </button>
+            </div>
+
             <h1 className="non-print">New Service Request</h1>
             {error && <div style={{ color: 'var(--danger)', marginBottom: '1rem' }} className="non-print">{error}</div>}
 

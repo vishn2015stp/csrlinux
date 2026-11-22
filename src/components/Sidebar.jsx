@@ -1,5 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import { Database, LayoutDashboard, LogOut, X, History } from 'lucide-react'
+import { LayoutDashboard, History, PlusCircle, FileText, Sliders, LogOut, X } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 
 
@@ -37,8 +37,16 @@ export default function Sidebar({ isOpen, closeSidebar }) {
                     <History size={20} />
                     All Requests
                 </NavLink>
+                <NavLink to="/intake" onClick={handleNavClick} className={({ isActive }) => isActive ? "nav-item active" : "nav-item"}>
+                    <PlusCircle size={20} />
+                    Service Intake
+                </NavLink>
+                <NavLink to="/proforma" onClick={handleNavClick} className={({ isActive }) => isActive ? "nav-item active" : "nav-item"}>
+                    <FileText size={20} />
+                    Proforma Invoice
+                </NavLink>
                 <NavLink to="/settings" onClick={handleNavClick} className={({ isActive }) => isActive ? "nav-item active" : "nav-item"}>
-                    <Database size={20} />
+                    <Sliders size={20} />
                     Settings
                 </NavLink>
             </nav>
