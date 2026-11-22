@@ -7,6 +7,7 @@
 #
 # Safe to re-run: existing .env and database data are preserved.
 set -Eeuo pipefail
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
 
 REPO_URL="${REPO_URL:-https://github.com/vishn2015stp/csrlinux.git}"
 BRANCH="${BRANCH:-main}"
@@ -25,6 +26,22 @@ SERVICE_NAME="${SERVICE_NAME:-csrlinux}"
 log()  { printf '\n[csrlinux] %s\n' "$*"; }
 die()  { printf '\n[csrlinux][ERROR] %s\n' "$*" >&2; exit 1; }
 trap 'die "Installation failed at line $LINENO. See output above."' ERR
+
+run_as() {
+    local target_user="$1"
+    shift
+    if command -v runuser >/dev/null 2>&1; then
+        runuser -u "$target_user" -- "$@"
+    elif [[ -x /usr/sbin/runuser ]]; then
+        /usr/sbin/runuser -u "$target_user" -- "$@"
+    elif [[ -x /sbin/runuser ]]; then
+        /sbin/runuser -u "$target_user" -- "$@"
+    elif command -v su >/dev/null 2>&1; then
+        su -s /bin/bash "$target_user" -c 'exec "$@"' _ "$@"
+    else
+        die "Neither runuser nor su is available."
+    fi
+}
 
 [[ "$(id -u)" -eq 0 ]] || die "Run this installer as root (sudo bash install.sh)."
 
@@ -106,16 +123,16 @@ else
     [[ -n "$DB_PASSWORD" ]] || DB_PASSWORD="$(openssl rand -hex 24)"
 
     log "Creating PostgreSQL role '$DB_USER' and database '$DB_NAME'..."
-    if [[ "$(runuser -u postgres -- psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='$DB_USER';")" == "1" ]]; then
-        runuser -u postgres -- psql -v ON_ERROR_STOP=1 -c \
+    if [[ "$(run_as postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='$DB_USER';")" == "1" ]]; then
+        run_as postgres psql -v ON_ERROR_STOP=1 -c \
             "ALTER ROLE $DB_USER WITH LOGIN PASSWORD '$DB_PASSWORD';"
     else
-        runuser -u postgres -- psql -v ON_ERROR_STOP=1 -c \
+        run_as postgres psql -v ON_ERROR_STOP=1 -c \
             "CREATE ROLE $DB_USER LOGIN PASSWORD '$DB_PASSWORD';"
     fi
 
-    if [[ "$(runuser -u postgres -- psql -tAc "SELECT 1 FROM pg_database WHERE datname='$DB_NAME';")" != "1" ]]; then
-        runuser -u postgres -- createdb -O "$DB_USER" "$DB_NAME"
+    if [[ "$(run_as postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='$DB_NAME';")" != "1" ]]; then
+        run_as postgres createdb -O "$DB_USER" "$DB_NAME"
     fi
 
     umask 077
@@ -147,8 +164,8 @@ chmod 600 "$APP_DIR/deploy/install.conf"
 
 # ------------------------------------------------------------------ build
 log "Installing npm dependencies and building the React frontend..."
-runuser -u "$APP_USER" -- bash -c "cd \"$APP_DIR\" && npm ci"
-runuser -u "$APP_USER" -- bash -c "cd \"$APP_DIR\" && npm run build"
+run_as "$APP_USER" bash -c "cd \"$APP_DIR\" && npm ci"
+run_as "$APP_USER" bash -c "cd \"$APP_DIR\" && npm run build"
 [[ -f "$APP_DIR/dist/index.html" ]] || die "Frontend build did not produce dist/index.html."
 
 # ------------------------------------------------------------------ service
