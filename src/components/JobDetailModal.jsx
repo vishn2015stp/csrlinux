@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
-import { X, Save, Printer, ArrowLeftRight } from 'lucide-react';
+import { X, Save, Printer, ArrowLeftRight, FileText, PackagePlus, Receipt } from 'lucide-react';
+import A4PrintModal from './A4PrintModal';
 
 export default function JobDetailModal({ jobId, onClose, onRefresh }) {
     const { user } = useAuth();
@@ -9,22 +10,44 @@ export default function JobDetailModal({ jobId, onClose, onRefresh }) {
     const [customer, setCustomer] = useState(null);
     const [newLog, setNewLog] = useState('');
     const [logs, setLogs] = useState([]);
-    const [showInvoice, setShowInvoice] = useState(false);
+    const [showPrintModal, setShowPrintModal] = useState(false);
+    const [printDocType, setPrintDocType] = useState('service_report');
     const [invoice, setInvoice] = useState({
         service_fees: 0,
         part_costs: 0,
         spares: '',
         warranty: '',
-        total: 0
+        total: 0,
+        taxable_amount: 0,
+        gst_rate: 18,
+        gst_type: 'CGST_SGST',
+        cgst_amount: 0,
+        sgst_amount: 0,
+        igst_amount: 0,
+        grand_total: 0,
+        proforma_number: '',
+        customer_gstin: '',
+        invoice_type: 'Service Report'
     });
     const [printConfig, setPrintConfig] = useState({
         shopName: 'Hypertech Digital',
         shopAddress: '',
         shopPhone: '',
+        shopEmail: '',
+        shopGstin: '',
+        stateName: 'Kerala',
+        stateCode: '32',
+        defaultGstRate: 18,
+        bankName: '',
+        accountName: '',
+        accountNo: '',
+        ifsc: '',
+        upiId: '',
         showTechnician: true,
         showSerialNo: true,
         showCustomerPhone: true,
-        invoiceTerms: 'Thank you for choosing Hypertech Digital.\nAll repairs come with a standard 30-day warranty unless otherwise stated.'
+        invoiceTerms: 'Thank you for choosing Hypertech Digital.\nAll repairs come with a standard 30-day warranty unless otherwise stated.',
+        proformaTerms: '1. This is a Proforma Invoice / Quotation and not a final Tax Invoice.\n2. Quotation is valid for 15 days from date of issue.\n3. Repairs will commence upon customer approval of this estimate.\n4. Spares subject to market availability.'
     });
 
     // Product editing states
@@ -38,9 +61,14 @@ export default function JobDetailModal({ jobId, onClose, onRefresh }) {
     const [editIssue, setEditIssue] = useState('');
     const [editIsIntaken, setEditIsIntaken] = useState(false);
 
-    // Multiple spares and warranty states
+    // Inventory and spares states
+    const [inventoryList, setInventoryList] = useState([]);
+    const [selectedInventoryId, setSelectedInventoryId] = useState('');
     const [newSpareName, setNewSpareName] = useState('');
     const [newSpareCost, setNewSpareCost] = useState('');
+    const [newSpareHsn, setNewSpareHsn] = useState('8473');
+    const [newSpareQty, setNewSpareQty] = useState(1);
+    const [newSpareGstRate, setNewSpareGstRate] = useState(18);
 
     const isDelivered = job?.status?.trim().toLowerCase() === 'delivered' || job?.status?.trim().toLowerCase() === 'completed' || job?.status?.trim().toLowerCase() === 'returned';
 
@@ -67,16 +95,36 @@ export default function JobDetailModal({ jobId, onClose, onRefresh }) {
             try {
                 const invoices = await api.getInvoices(jobId);
                 if (invoices && invoices.length > 0) {
-                    setInvoice(invoices[0]);
+                    setInvoice(prev => ({
+                        ...prev,
+                        ...invoices[0],
+                        gst_rate: invoices[0].gst_rate !== undefined ? invoices[0].gst_rate : 18,
+                        gst_type: invoices[0].gst_type || 'CGST_SGST'
+                    }));
                 }
             } catch (err) {
                 console.error('Error fetching invoice:', err);
             }
 
+            // Fetch inventory items
+            try {
+                const inv = await api.getInventory();
+                setInventoryList(inv || []);
+            } catch (err) {
+                console.error('Error fetching inventory:', err);
+            }
+
             try {
                 const settings = await api.getSettings();
                 if (settings.print_settings) {
-                    setPrintConfig(JSON.parse(settings.print_settings));
+                    const parsed = JSON.parse(settings.print_settings);
+                    setPrintConfig(prev => ({ ...prev, ...parsed }));
+                    if (parsed.defaultGstRate) {
+                        setInvoice(prev => ({
+                            ...prev,
+                            gst_rate: prev.gst_rate !== undefined ? prev.gst_rate : parsed.defaultGstRate
+                        }));
+                    }
                 }
             } catch (e) {}
         };
@@ -298,32 +346,82 @@ export default function JobDetailModal({ jobId, onClose, onRefresh }) {
 
     const sparesList = getSparesList();
 
+    const handleSelectInventory = (itemId) => {
+        setSelectedInventoryId(itemId);
+        if (!itemId) return;
+        const found = inventoryList.find(i => i.id === itemId);
+        if (found) {
+            setNewSpareName(found.name || '');
+            setNewSpareCost(found.unit_price || 0);
+            setNewSpareHsn(found.hsn_code || '8473');
+            setNewSpareGstRate(found.gst_rate !== undefined ? found.gst_rate : 18);
+        }
+    };
+
     const handleAddSpare = () => {
         if (!newSpareName.trim()) return;
-        const costVal = parseFloat(newSpareCost) || 0;
-        const newSpare = { name: newSpareName.trim(), cost: costVal };
+        const unitPrice = parseFloat(newSpareCost) || 0;
+        const qty = parseInt(newSpareQty, 10) || 1;
+        const totalCost = unitPrice * qty;
+        const newSpare = {
+            name: newSpareName.trim(),
+            unit_price: unitPrice,
+            qty: qty,
+            cost: totalCost,
+            hsn: newSpareHsn || '8473',
+            gst_rate: parseFloat(newSpareGstRate) || 18,
+            inventory_id: selectedInventoryId || null
+        };
         const updatedList = [...sparesList, newSpare];
-        const newPartCosts = updatedList.reduce((sum, s) => sum + s.cost, 0);
+        const newPartCosts = updatedList.reduce((sum, s) => {
+            const itemQty = parseFloat(s.qty) || 1;
+            const itemPrice = s.unit_price !== undefined ? parseFloat(s.unit_price) : (parseFloat(s.cost) || 0);
+            return sum + (s.cost !== undefined && s.unit_price === undefined ? parseFloat(s.cost) : (itemQty * itemPrice));
+        }, 0);
+
+        const serviceFees = parseFloat(invoice.service_fees) || 0;
+        const taxable = serviceFees + newPartCosts;
+        const gstRateVal = invoice.gst_rate !== undefined ? parseFloat(invoice.gst_rate) : 18;
+        const gstTypeVal = invoice.gst_type || 'CGST_SGST';
+        const totalTax = gstTypeVal === 'NONE' ? 0 : Math.round((taxable * gstRateVal / 100) * 100) / 100;
+        const finalGrandTotal = taxable + totalTax;
 
         setInvoice(prev => ({
             ...prev,
             spares: JSON.stringify(updatedList),
             part_costs: newPartCosts,
-            total: (parseFloat(prev.service_fees) || 0) + newPartCosts
+            taxable_amount: taxable,
+            grand_total: finalGrandTotal,
+            total: finalGrandTotal
         }));
         setNewSpareName('');
         setNewSpareCost('');
+        setSelectedInventoryId('');
+        setNewSpareQty(1);
     };
 
     const handleRemoveSpare = (index) => {
         const updatedList = sparesList.filter((_, idx) => idx !== index);
-        const newPartCosts = updatedList.reduce((sum, s) => sum + s.cost, 0);
+        const newPartCosts = updatedList.reduce((sum, s) => {
+            const itemQty = parseFloat(s.qty) || 1;
+            const itemPrice = s.unit_price !== undefined ? parseFloat(s.unit_price) : (parseFloat(s.cost) || 0);
+            return sum + (s.cost !== undefined && s.unit_price === undefined ? parseFloat(s.cost) : (itemQty * itemPrice));
+        }, 0);
+
+        const serviceFees = parseFloat(invoice.service_fees) || 0;
+        const taxable = serviceFees + newPartCosts;
+        const gstRateVal = invoice.gst_rate !== undefined ? parseFloat(invoice.gst_rate) : 18;
+        const gstTypeVal = invoice.gst_type || 'CGST_SGST';
+        const totalTax = gstTypeVal === 'NONE' ? 0 : Math.round((taxable * gstRateVal / 100) * 100) / 100;
+        const finalGrandTotal = taxable + totalTax;
 
         setInvoice(prev => ({
             ...prev,
             spares: updatedList.length > 0 ? JSON.stringify(updatedList) : '',
             part_costs: newPartCosts,
-            total: (parseFloat(prev.service_fees) || 0) + newPartCosts
+            taxable_amount: taxable,
+            grand_total: finalGrandTotal,
+            total: finalGrandTotal
         }));
     };
 
@@ -352,19 +450,48 @@ export default function JobDetailModal({ jobId, onClose, onRefresh }) {
         try {
             const serviceFees = parseFloat(invoice.service_fees) || 0;
             const partCosts = parseFloat(invoice.part_costs) || 0;
-            const totalVal = serviceFees + partCosts;
+            const taxable = serviceFees + partCosts;
+            const gstRateVal = invoice.gst_rate !== undefined ? parseFloat(invoice.gst_rate) : 18;
+            const gstTypeVal = invoice.gst_type || 'CGST_SGST';
+
+            let cgst = 0;
+            let sgst = 0;
+            let igst = 0;
+            if (gstTypeVal === 'CGST_SGST' && gstRateVal > 0) {
+                cgst = Math.round((taxable * (gstRateVal / 2) / 100) * 100) / 100;
+                sgst = Math.round((taxable * (gstRateVal / 2) / 100) * 100) / 100;
+            } else if (gstTypeVal === 'IGST' && gstRateVal > 0) {
+                igst = Math.round((taxable * gstRateVal / 100) * 100) / 100;
+            }
+            const totalTax = cgst + sgst + igst;
+            const grandTotalVal = taxable + totalTax;
+
+            const csrNum = job.csr_number || job.id.split('-')[0].toUpperCase();
+            const profNum = invoice.proforma_number || `PI-${new Date().getFullYear()}-${csrNum.replace('#', '')}`;
+            const recNum = invoice.receipt_number || `INV-${csrNum.replace('#', '')}`;
 
             const saved = await api.createInvoice({
                 complaint_id: jobId,
+                receipt_number: recNum,
+                proforma_number: profNum,
                 service_fees: serviceFees,
                 part_costs: partCosts,
+                taxable_amount: taxable,
+                gst_rate: gstRateVal,
+                gst_type: gstTypeVal,
+                cgst_amount: cgst,
+                sgst_amount: sgst,
+                igst_amount: igst,
+                grand_total: grandTotalVal,
+                total: grandTotalVal,
                 spares: invoice.spares || '',
                 warranty: invoice.warranty || '',
-                total: totalVal
+                customer_gstin: invoice.customer_gstin || '',
+                invoice_type: invoice.invoice_type || 'Service Report'
             });
             
             setInvoice(saved);
-            alert("Billing & warranty details saved successfully!");
+            alert("Billing, inventory & GST details saved successfully!");
         } catch (err) {
             alert("Failed to save billing details: " + err.message);
         }
@@ -405,103 +532,6 @@ export default function JobDetailModal({ jobId, onClose, onRefresh }) {
     };
 
     if (!job || !customer) return null;
-
-    if (showInvoice) {
-        return (
-            <div style={{ position: 'fixed', top: 0, left: 0, bottom: 0, right: 0, background: 'rgba(0,0,0,0.85)', zIndex: 9999, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-                <div style={{ background: 'white', color: 'black', padding: '1.5rem 1rem', width: '500px', maxWidth: '95%', borderRadius: '4px', boxSizing: 'border-box' }}>
-                    <div className="non-print" style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1rem' }}>
-                        <button onClick={() => window.print()} style={{ marginRight: '1rem', background: 'var(--border-color)' }}><Printer size={16} /> Print</button>
-                        <button onClick={() => setShowInvoice(false)} style={{ background: '#e53e3e' }}>Close</button>
-                    </div>
-                    <div className="invoice-print-area" style={{
-                        background: '#fff', color: '#000',
-                        padding: '24px', borderRadius: '0',
-                        fontFamily: 'Arial, sans-serif', fontSize: '13px',
-                        width: '100%', margin: '0 auto',
-                    }}>
-                        <div style={{ textAlign: 'center', borderBottom: '2px solid #000', paddingBottom: '14px', marginBottom: '14px' }}>
-                            <div style={{ fontSize: '20px', fontWeight: 'bold' }}>{printConfig.shopName || 'Your Shop Name'}</div>
-                            {printConfig.shopAddress && <div style={{ fontSize: '11px', marginTop: '4px', whiteSpace: 'pre-line' }}>{printConfig.shopAddress}</div>}
-                            {printConfig.shopPhone && <div style={{ fontSize: '11px' }}>Tel: {printConfig.shopPhone}</div>}
-                            {printConfig.shopEmail && <div style={{ fontSize: '11px' }}>{printConfig.shopEmail}</div>}
-                            <div style={{ marginTop: '10px', fontSize: '15px', fontWeight: 'bold', letterSpacing: '1px' }}>SERVICE REPORT</div>
-                        </div>
-
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', fontSize: '12px' }}>
-                            <div>
-                                <div><b>Receipt #:</b> {invoice.receipt_number || 'Pending'}</div>
-                                <div><b>Date:</b> {new Date().toLocaleDateString('en-GB').replace(/\//g, '-')}</div>
-                            </div>
-                            <div style={{ textAlign: 'right' }}>
-                                <div><b>CSR #:</b> {job.csr_number || job.id.split('-')[0].toUpperCase()}</div>
-                                {printConfig.showTechnician && <div><b>Tech:</b> {user?.username || 'Admin'}</div>}
-                            </div>
-                        </div>
-
-                        <div style={{ background: '#f5f5f5', padding: '8px 10px', borderRadius: '4px', marginBottom: '12px', fontSize: '12px' }}>
-                            <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Customer</div>
-                            <div>{customer.name}</div>
-                            {printConfig.showCustomerPhone && <div>{customer.phone}</div>}
-                            <div style={{ marginTop: '4px' }}><b>Device:</b> {job.item_name}</div>
-                            {printConfig.showSerialNo && <div><b>S/N:</b> {job.serial_no || '—'}</div>}
-                        </div>
-
-                        <div style={{ marginBottom: '12px', fontSize: '12px' }}>
-                            <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Work Performed</div>
-                            <div style={{ background: '#f9f9f9', padding: '6px', border: '1px solid #ddd' }}>
-                                {job.issue}
-                            </div>
-                        </div>
-
-                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', marginBottom: '12px' }}>
-                            <thead>
-                                <tr style={{ background: 'var(--border-color)', color: 'var(--text-primary)' }}>
-                                    <th style={{ padding: '5px 8px', textAlign: 'left', borderBottom: '1px solid #000' }}>Description</th>
-                                    <th style={{ padding: '5px 8px', textAlign: 'right', borderBottom: '1px solid #000' }}>Amount</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr style={{ borderBottom: '1px solid #ddd' }}>
-                                    <td style={{ padding: '5px 8px' }}>Service & Labor</td>
-                                    <td style={{ padding: '5px 8px', textAlign: 'right' }}>₹{invoice.service_fees || 0}</td>
-                                </tr>
-                                <tr style={{ borderBottom: '1px solid #ddd' }}>
-                                    <td style={{ padding: '5px 8px' }}>
-                                        Spare Parts
-                                        {invoice.spares && (
-                                            <div style={{ fontSize: '10px', color: '#555', marginTop: '2px' }}>
-                                                {(() => {
-                                                    if (invoice.spares.startsWith('[')) {
-                                                        try {
-                                                            return JSON.parse(invoice.spares).map(s => `${s.name}`).join(', ');
-                                                        } catch (e) {
-                                                            return invoice.spares;
-                                                        }
-                                                    }
-                                                    return invoice.spares;
-                                                })()}
-                                            </div>
-                                        )}
-                                        {invoice.warranty && <div style={{ fontSize: '10px', color: '#555', marginTop: '2px' }}>Warranty: {invoice.warranty}</div>}
-                                    </td>
-                                    <td style={{ padding: '5px 8px', textAlign: 'right' }}>₹{invoice.part_costs || 0}</td>
-                                </tr>
-                                <tr style={{ fontWeight: 'bold', background: '#f0f0f0' }}>
-                                    <td style={{ padding: '8px' }}>TOTAL</td>
-                                    <td style={{ padding: '8px', textAlign: 'right' }}>₹{invoice.total || (parseFloat(invoice.service_fees || 0) + parseFloat(invoice.part_costs || 0))}</td>
-                                </tr>
-                            </tbody>
-                        </table>
-
-                    <div style={{ textAlign: 'center', fontSize: '10px', color: '#555', borderTop: '1px dashed var(--text-secondary)', paddingTop: '8px', whiteSpace: 'pre-line' }}>
-                        {printConfig.invoiceTerms || 'Your footer terms here.'}
-                    </div>
-                    </div>
-                </div>
-            </div>
-        );
-    }
 
     return (
         <div style={{ position: 'fixed', top: 0, left: 0, bottom: 0, right: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1100, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
@@ -839,7 +869,7 @@ export default function JobDetailModal({ jobId, onClose, onRefresh }) {
                         <div style={{ background: '#f6f3eb', padding: '1rem', borderRadius: '4px', marginTop: '1.5rem' }}>
                             {isDelivered ? (
                                 <>
-                                    <h3 style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem', margin: '0 0 1rem 0', color: '#a3be8c' }}>Billing & Warranty (Locked)</h3>
+                                    <h3 style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem', margin: '0 0 1rem 0', color: '#a3be8c' }}>Billing, Inventory & GST (Locked)</h3>
                                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '0.75rem', fontSize: '0.9rem' }}>
                                         <div>
                                             <span style={{ color: '#35a7e6', display: 'block', fontSize: '0.8rem' }}>Service Charge</span>
@@ -856,7 +886,7 @@ export default function JobDetailModal({ jobId, onClose, onRefresh }) {
                                             <div style={{ marginTop: '4px' }}>
                                                 {sparesList.map((s, idx) => (
                                                     <div key={idx} style={{ display: 'inline-block', background: '#f2f2f2', padding: '2px 8px', borderRadius: '4px', marginRight: '6px', marginBottom: '4px', fontSize: '0.85rem', border: '1px solid var(--border-color)' }}>
-                                                        {s.name} (₹{s.cost})
+                                                        {s.name} {s.qty ? `x${s.qty}` : ''} (₹{s.cost})
                                                     </div>
                                                 ))}
                                             </div>
@@ -870,14 +900,16 @@ export default function JobDetailModal({ jobId, onClose, onRefresh }) {
                                             <strong>{invoice.warranty || 'No warranty'}</strong>
                                         </div>
                                         <div style={{ textAlign: 'right' }}>
-                                            <span style={{ color: '#35a7e6', display: 'block', fontSize: '0.8rem' }}>Total Amount</span>
-                                            <strong style={{ fontSize: '1.25rem', color: '#a3be8c' }}>₹{invoice.total || (parseFloat(invoice.service_fees || 0) + parseFloat(invoice.part_costs || 0))}</strong>
+                                            <span style={{ color: '#35a7e6', display: 'block', fontSize: '0.8rem' }}>Grand Total (incl. GST)</span>
+                                            <strong style={{ fontSize: '1.25rem', color: '#a3be8c' }}>₹{invoice.grand_total || invoice.total || (parseFloat(invoice.service_fees || 0) + parseFloat(invoice.part_costs || 0))}</strong>
                                         </div>
                                     </div>
                                 </>
                             ) : (
                                 <>
-                                    <h3 style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem', margin: '0 0 1rem 0', color: '#35a7e6' }}>Billing & Warranty</h3>
+                                    <h3 style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem', margin: '0 0 1rem 0', color: '#35a7e6', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <Receipt size={18} /> Billing, Inventory & Proforma Invoice
+                                    </h3>
                                     
                                     <div className="billing-inputs-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
                                         <div>
@@ -885,13 +917,26 @@ export default function JobDetailModal({ jobId, onClose, onRefresh }) {
                                             <input 
                                                 type="number" 
                                                 value={invoice.service_fees || ''} 
-                                                onChange={e => setInvoice(prev => ({ ...prev, service_fees: e.target.value }))}
+                                                onChange={e => {
+                                                    const val = parseFloat(e.target.value) || 0;
+                                                    const pCost = parseFloat(invoice.part_costs) || 0;
+                                                    const taxable = val + pCost;
+                                                    const gRate = invoice.gst_rate !== undefined ? parseFloat(invoice.gst_rate) : 18;
+                                                    const gTax = invoice.gst_type === 'NONE' ? 0 : Math.round((taxable * gRate / 100) * 100) / 100;
+                                                    setInvoice(prev => ({
+                                                        ...prev,
+                                                        service_fees: e.target.value,
+                                                        taxable_amount: taxable,
+                                                        total: taxable + gTax,
+                                                        grand_total: taxable + gTax
+                                                    }));
+                                                }}
                                                 placeholder="0"
                                                 style={{ width: '100%', padding: '0.4rem', background: 'var(--panel-bg)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '4px', margin: 0 }}
                                             />
                                         </div>
                                         <div>
-                                            <label style={{ fontSize: '0.8rem', color: 'var(--text-primary)', display: 'block', marginBottom: '4px' }}>Spare Cost (₹)</label>
+                                            <label style={{ fontSize: '0.8rem', color: 'var(--text-primary)', display: 'block', marginBottom: '4px' }}>Spare Parts Total (₹)</label>
                                             <input 
                                                 type="number" 
                                                 disabled
@@ -900,71 +945,237 @@ export default function JobDetailModal({ jobId, onClose, onRefresh }) {
                                             />
                                         </div>
                                         <div>
-                                            <label style={{ fontSize: '0.8rem', color: 'var(--text-primary)', display: 'block', marginBottom: '4px' }}>Total Bill (₹)</label>
+                                            <label style={{ fontSize: '0.8rem', color: 'var(--text-primary)', display: 'block', marginBottom: '4px' }}>Taxable Subtotal (₹)</label>
                                             <input 
                                                 type="number" 
                                                 disabled
                                                 value={(parseFloat(invoice.service_fees) || 0) + (parseFloat(invoice.part_costs) || 0)} 
-                                                style={{ width: '100%', padding: '0.4rem', background: '#f2f2f2', border: '1px solid var(--border-color)', color: 'var(--accent)', borderRadius: '4px', margin: 0, cursor: 'not-allowed', fontWeight: 'bold' }}
+                                                style={{ width: '100%', padding: '0.4rem', background: '#f2f2f2', border: '1px solid var(--border-color)', color: '#35a7e6', borderRadius: '4px', margin: 0, cursor: 'not-allowed', fontWeight: 'bold' }}
                                             />
                                         </div>
                                     </div>
 
-                                    {/* Multiple Spares List */}
-                                    <div style={{ marginBottom: '0.75rem' }}>
-                                        <label style={{ fontSize: '0.8rem', color: 'var(--text-primary)', display: 'block', marginBottom: '4px' }}>Spares Used</label>
-                                        
-                                        {sparesList.map((spare, index) => (
-                                            <div key={index} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f6f3eb', padding: '4px 8px', borderRadius: '4px', marginBottom: '4px', fontSize: '0.85rem', border: '1px solid var(--border-color)' }}>
-                                                <span>{spare.name}</span>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                    <strong>₹{spare.cost}</strong>
-                                                    <button type="button" onClick={() => handleRemoveSpare(index)} style={{ background: 'transparent', border: 'none', color: 'var(--danger)', cursor: 'pointer', padding: '0 4px', fontSize: '1rem', fontWeight: 'bold' }}>✕</button>
-                                                </div>
-                                            </div>
-                                        ))}
+                                    {/* Inventory & Spares Section */}
+                                    <div style={{ background: 'var(--panel-bg)', padding: '0.75rem', borderRadius: '6px', border: '1px solid var(--border-color)', marginBottom: '0.75rem' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                                            <label style={{ fontSize: '0.8rem', fontWeight: 'bold', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                <PackagePlus size={15} color="#35a7e6" /> Add Inventory & Spare Parts
+                                            </label>
+                                            {inventoryList.length > 0 && (
+                                                <span style={{ fontSize: '0.75rem', color: '#64748b' }}>{inventoryList.length} items available in stock</span>
+                                            )}
+                                        </div>
 
-                                        <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
+                                        {/* Inventory selector dropdown */}
+                                        {inventoryList.length > 0 && (
+                                            <div style={{ marginBottom: '6px' }}>
+                                                <select
+                                                    value={selectedInventoryId}
+                                                    onChange={e => handleSelectInventory(e.target.value)}
+                                                    style={{ width: '100%', padding: '0.4rem', background: '#f8fafc', border: '1px solid var(--border-color)', borderRadius: '4px', fontSize: '0.85rem', color: '#1e293b' }}
+                                                >
+                                                    <option value="">-- Choose from Master Inventory (Auto-fills price & HSN) --</option>
+                                                    {inventoryList.map(item => (
+                                                        <option key={item.id} value={item.id}>
+                                                            {item.name} — ₹{item.unit_price} (Stock: {item.quantity}) [{item.category}]
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                        )}
+
+                                        {/* Manual / Auto-filled item inputs */}
+                                        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr auto', gap: '6px', alignItems: 'center' }}>
                                             <input 
                                                 type="text" 
                                                 value={newSpareName}
                                                 onChange={e => setNewSpareName(e.target.value)}
-                                                placeholder="Part name..."
-                                                style={{ flex: 2, padding: '0.4rem', background: 'var(--panel-bg)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '4px', margin: 0 }}
+                                                placeholder="Part Name..."
+                                                style={{ padding: '0.4rem', background: 'var(--bg-color)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '4px', margin: 0, fontSize: '0.85rem' }}
                                             />
                                             <input 
                                                 type="number" 
                                                 value={newSpareCost}
                                                 onChange={e => setNewSpareCost(e.target.value)}
-                                                placeholder="Cost..."
-                                                style={{ flex: 1, padding: '0.4rem', background: 'var(--panel-bg)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '4px', margin: 0 }}
+                                                placeholder="Unit Price (₹)"
+                                                title="Unit Price"
+                                                style={{ padding: '0.4rem', background: 'var(--bg-color)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '4px', margin: 0, fontSize: '0.85rem' }}
+                                            />
+                                            <input 
+                                                type="number" 
+                                                min="1"
+                                                value={newSpareQty}
+                                                onChange={e => setNewSpareQty(e.target.value)}
+                                                placeholder="Qty"
+                                                title="Quantity"
+                                                style={{ padding: '0.4rem', background: 'var(--bg-color)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '4px', margin: 0, fontSize: '0.85rem' }}
+                                            />
+                                            <input 
+                                                type="text" 
+                                                value={newSpareHsn}
+                                                onChange={e => setNewSpareHsn(e.target.value)}
+                                                placeholder="HSN (8473)"
+                                                title="HSN Code"
+                                                style={{ padding: '0.4rem', background: 'var(--bg-color)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '4px', margin: 0, fontSize: '0.85rem' }}
                                             />
                                             <button 
                                                 type="button" 
                                                 onClick={handleAddSpare}
-                                                style={{ background: 'var(--accent)', color: 'black', padding: '0 12px', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.9rem' }}
+                                                style={{ background: 'var(--accent)', color: 'black', padding: '0.4rem 12px', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem', height: '100%' }}
                                             >
                                                 Add
                                             </button>
                                         </div>
+
+                                        {/* Added Spares List */}
+                                        <div style={{ marginTop: '8px' }}>
+                                            {sparesList.map((spare, index) => {
+                                                const qty = parseFloat(spare.qty) || 1;
+                                                const unitPrice = spare.unit_price !== undefined ? parseFloat(spare.unit_price) : (parseFloat(spare.cost) || 0);
+                                                const itemTotal = spare.cost !== undefined && spare.unit_price === undefined ? parseFloat(spare.cost) : (qty * unitPrice);
+                                                return (
+                                                    <div key={index} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', padding: '4px 8px', borderRadius: '4px', marginBottom: '4px', fontSize: '0.85rem', border: '1px solid #e2e8f0', color: '#1e293b' }}>
+                                                        <div>
+                                                            <b>{spare.name}</b> {qty > 1 ? `x${qty} @ ₹${unitPrice}` : ''}
+                                                            <span style={{ fontSize: '0.75rem', color: '#64748b', marginLeft: '6px' }}>(HSN: {spare.hsn || '8473'})</span>
+                                                        </div>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                            <strong>₹{itemTotal.toFixed(2)}</strong>
+                                                            <button type="button" onClick={() => handleRemoveSpare(index)} style={{ background: 'transparent', border: 'none', color: 'var(--danger)', cursor: 'pointer', padding: '0 4px', fontSize: '1rem', fontWeight: 'bold' }}>✕</button>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                            {sparesList.length === 0 && (
+                                                <div style={{ fontSize: '0.8rem', color: '#64748b', fontStyle: 'italic', marginTop: '4px' }}>No spare parts added yet.</div>
+                                            )}
+                                        </div>
                                     </div>
 
-                                    <div className="billing-save-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '0.5rem', alignItems: 'end' }}>
-                                        <div>
-                                            <label style={{ fontSize: '0.8rem', color: 'var(--text-primary)', display: 'block', marginBottom: '4px' }}>Warranty Period</label>
-                                            <input 
-                                                type="text" 
-                                                value={invoice.warranty || ''} 
-                                                onChange={e => setInvoice(prev => ({ ...prev, warranty: e.target.value }))}
-                                                placeholder="e.g. 3 Months / No warranty"
-                                                style={{ width: '100%', padding: '0.4rem', background: 'var(--panel-bg)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '4px', margin: 0 }}
-                                            />
+                                    {/* GST & Proforma Invoice Details */}
+                                    <div style={{ background: 'var(--panel-bg)', padding: '0.75rem', borderRadius: '6px', border: '1px solid var(--border-color)', marginBottom: '0.75rem' }}>
+                                        <div style={{ fontWeight: 'bold', fontSize: '0.8rem', color: 'var(--text-primary)', marginBottom: '6px' }}>
+                                            GST & Tax Invoice Settings
                                         </div>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '6px' }}>
+                                            <div>
+                                                <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>GST Mode</label>
+                                                <select 
+                                                    value={invoice.gst_type || 'CGST_SGST'}
+                                                    onChange={e => {
+                                                        const mode = e.target.value;
+                                                        const sFees = parseFloat(invoice.service_fees) || 0;
+                                                        const pCosts = parseFloat(invoice.part_costs) || 0;
+                                                        const taxable = sFees + pCosts;
+                                                        const gRate = mode === 'NONE' ? 0 : (invoice.gst_rate !== undefined ? parseFloat(invoice.gst_rate) : 18);
+                                                        const gTax = mode === 'NONE' ? 0 : Math.round((taxable * gRate / 100) * 100) / 100;
+                                                        setInvoice(prev => ({
+                                                            ...prev,
+                                                            gst_type: mode,
+                                                            total: taxable + gTax,
+                                                            grand_total: taxable + gTax
+                                                        }));
+                                                    }}
+                                                    style={{ width: '100%', padding: '0.4rem', background: 'var(--bg-color)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '4px', fontSize: '0.85rem' }}
+                                                >
+                                                    <option value="CGST_SGST">Intra-State (CGST + SGST)</option>
+                                                    <option value="IGST">Inter-State (IGST)</option>
+                                                    <option value="NONE">Exempt / No GST (0%)</option>
+                                                </select>
+                                            </div>
+
+                                            <div>
+                                                <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>GST Rate (%)</label>
+                                                <select 
+                                                    value={invoice.gst_rate !== undefined ? invoice.gst_rate : 18}
+                                                    onChange={e => {
+                                                        const r = parseFloat(e.target.value) || 0;
+                                                        const sFees = parseFloat(invoice.service_fees) || 0;
+                                                        const pCosts = parseFloat(invoice.part_costs) || 0;
+                                                        const taxable = sFees + pCosts;
+                                                        const gTax = invoice.gst_type === 'NONE' ? 0 : Math.round((taxable * r / 100) * 100) / 100;
+                                                        setInvoice(prev => ({
+                                                            ...prev,
+                                                            gst_rate: r,
+                                                            total: taxable + gTax,
+                                                            grand_total: taxable + gTax
+                                                        }));
+                                                    }}
+                                                    style={{ width: '100%', padding: '0.4rem', background: 'var(--bg-color)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '4px', fontSize: '0.85rem' }}
+                                                >
+                                                    <option value="18">18% (Standard IT/Electronics)</option>
+                                                    <option value="12">12%</option>
+                                                    <option value="5">5%</option>
+                                                    <option value="28">28%</option>
+                                                    <option value="0">0% (Nil)</option>
+                                                </select>
+                                            </div>
+
+                                            <div>
+                                                <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>Customer GSTIN (Optional)</label>
+                                                <input 
+                                                    type="text" 
+                                                    value={invoice.customer_gstin || ''}
+                                                    onChange={e => setInvoice(prev => ({ ...prev, customer_gstin: e.target.value.toUpperCase() }))}
+                                                    placeholder="32AAAAA0000A1Z5"
+                                                    style={{ width: '100%', padding: '0.4rem', background: 'var(--bg-color)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '4px', fontSize: '0.85rem', margin: 0 }}
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                                            <div>
+                                                <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>Proforma Invoice #</label>
+                                                <input 
+                                                    type="text" 
+                                                    value={invoice.proforma_number || ''}
+                                                    onChange={e => setInvoice(prev => ({ ...prev, proforma_number: e.target.value }))}
+                                                    placeholder={`PI-${new Date().getFullYear()}-${(job.csr_number || job.id.split('-')[0]).replace('#','')}`}
+                                                    style={{ width: '100%', padding: '0.4rem', background: 'var(--bg-color)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '4px', fontSize: '0.85rem', margin: 0 }}
+                                                />
+                                            </div>
+                                            <div>
+                                                <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '2px' }}>Warranty Period</label>
+                                                <input 
+                                                    type="text" 
+                                                    value={invoice.warranty || ''} 
+                                                    onChange={e => setInvoice(prev => ({ ...prev, warranty: e.target.value }))}
+                                                    placeholder="e.g. 3 Months / No warranty"
+                                                    style={{ width: '100%', padding: '0.4rem', background: 'var(--bg-color)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '4px', fontSize: '0.85rem', margin: 0 }}
+                                                />
+                                            </div>
+                                        </div>
+
+                                        {/* Real-time Tax & Total Summary */}
+                                        <div style={{ marginTop: '8px', padding: '6px 10px', background: 'rgba(53, 167, 230, 0.08)', border: '1px solid rgba(53, 167, 230, 0.25)', borderRadius: '4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', fontSize: '0.85rem' }}>
+                                            <div>
+                                                <span style={{ color: 'var(--text-secondary)' }}>Taxable: </span>
+                                                <strong>₹{((parseFloat(invoice.service_fees) || 0) + (parseFloat(invoice.part_costs) || 0)).toFixed(2)}</strong>
+                                            </div>
+                                            <div>
+                                                <span style={{ color: 'var(--text-secondary)' }}>
+                                                    {invoice.gst_type === 'IGST' ? `IGST (${invoice.gst_rate || 18}%): ` : `GST (${invoice.gst_rate || 18}%): `}
+                                                </span>
+                                                <strong>₹{invoice.gst_type === 'NONE' ? '0.00' : (((parseFloat(invoice.service_fees) || 0) + (parseFloat(invoice.part_costs) || 0)) * ((invoice.gst_rate !== undefined ? parseFloat(invoice.gst_rate) : 18) / 100)).toFixed(2)}</strong>
+                                            </div>
+                                            <div>
+                                                <span style={{ color: 'var(--text-secondary)' }}>Grand Total: </span>
+                                                <strong style={{ color: '#10b981', fontSize: '1.05rem' }}>
+                                                    ₹{(
+                                                        ((parseFloat(invoice.service_fees) || 0) + (parseFloat(invoice.part_costs) || 0)) +
+                                                        (invoice.gst_type === 'NONE' ? 0 : (((parseFloat(invoice.service_fees) || 0) + (parseFloat(invoice.part_costs) || 0)) * ((invoice.gst_rate !== undefined ? parseFloat(invoice.gst_rate) : 18) / 100)))
+                                                    ).toFixed(2)}
+                                                </strong>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div style={{ marginTop: '0.5rem' }}>
                                         <button 
                                             onClick={handleSaveInvoice} 
                                             style={{ 
                                                 width: '100%', 
-                                                padding: '0.5rem', 
+                                                padding: '0.6rem', 
                                                 background: '#35a7e6', 
                                                 color: 'var(--panel-bg)', 
                                                 fontWeight: 'bold', 
@@ -975,26 +1186,75 @@ export default function JobDetailModal({ jobId, onClose, onRefresh }) {
                                                 alignItems: 'center',
                                                 justifyContent: 'center',
                                                 gap: '6px',
-                                                height: '35px',
+                                                fontSize: '0.9rem',
                                                 margin: 0
                                             }}
                                         >
-                                            <Save size={16} /> Save Billing
+                                            <Save size={16} /> Save Billing & GST Details
                                         </button>
                                     </div>
                                 </>
                             )}
                         </div>
 
-                        <div style={{ marginTop: '1.5rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                            <button onClick={() => setShowInvoice(true)} style={{ background: '#4c566a', color: '#fff', padding: '1rem', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '0.5rem', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
-                                <Printer size={20} /> Generate & Print Service Report
+                        {/* Document Print & Proforma Generation Buttons */}
+                        <div style={{ marginTop: '1.5rem', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                            <button 
+                                type="button"
+                                onClick={() => { setPrintDocType('service_report'); setShowPrintModal(true); }} 
+                                style={{ 
+                                    background: '#334155', 
+                                    color: '#fff', 
+                                    padding: '0.85rem', 
+                                    display: 'flex', 
+                                    justifyContent: 'center', 
+                                    alignItems: 'center', 
+                                    gap: '0.5rem', 
+                                    border: 'none', 
+                                    borderRadius: '4px', 
+                                    cursor: 'pointer',
+                                    fontWeight: '600',
+                                    fontSize: '0.9rem'
+                                }}
+                            >
+                                <Printer size={18} /> Print Service Report (A4)
+                            </button>
+                            <button 
+                                type="button"
+                                onClick={() => { setPrintDocType('proforma'); setShowPrintModal(true); }} 
+                                style={{ 
+                                    background: 'var(--accent)', 
+                                    color: '#000', 
+                                    padding: '0.85rem', 
+                                    display: 'flex', 
+                                    justifyContent: 'center', 
+                                    alignItems: 'center', 
+                                    gap: '0.5rem', 
+                                    border: 'none', 
+                                    borderRadius: '4px', 
+                                    cursor: 'pointer',
+                                    fontWeight: 'bold',
+                                    fontSize: '0.9rem'
+                                }}
+                            >
+                                <FileText size={18} /> Create Proforma Invoice (GST)
                             </button>
                         </div>
                     </div>
 
                 </div>
             </div>
+
+            {/* A4 Document Print Modal */}
+            <A4PrintModal
+                isOpen={showPrintModal}
+                onClose={() => setShowPrintModal(false)}
+                initialDocType={printDocType}
+                job={job}
+                customer={customer}
+                invoice={invoice}
+                config={printConfig}
+            />
         </div>
     );
 }

@@ -592,8 +592,15 @@ app.get('/api/status_logs', async (req, res) => {
 // =============== INVOICES ===============
 app.post('/api/invoices', async (req, res) => {
     const id = req.body.id || uuidv4();
-    const { complaint_id, receipt_number, service_fees, part_costs, total, spares, warranty, created_at } = req.body;
+    const {
+        complaint_id, receipt_number, proforma_number,
+        service_fees, part_costs, taxable_amount,
+        gst_rate, gst_type, cgst_amount, sgst_amount, igst_amount, grand_total, total,
+        spares, warranty, customer_gstin, invoice_type, created_at
+    } = req.body;
     const ts = created_at || new Date().toISOString();
+    const finalTotal = grand_total ?? total ?? ((parseFloat(service_fees) || 0) + (parseFloat(part_costs) || 0));
+
     try {
         // Block billing updates if the complaint is already delivered or completed
         const currentComplaint = await db.query('SELECT status FROM complaints WHERE id = $1', [complaint_id]);
@@ -608,8 +615,43 @@ app.post('/api/invoices', async (req, res) => {
         const existing = resExist.rows[0];
         if (existing) {
             await db.query(
-                'UPDATE invoices SET receipt_number = $1, service_fees = $2, part_costs = $3, total = $4, spares = $5, warranty = $6 WHERE complaint_id = $7',
-                [receipt_number || existing.receipt_number, service_fees ?? 0, part_costs ?? 0, total ?? 0, spares || '', warranty || '', complaint_id]
+                `UPDATE invoices SET 
+                    receipt_number = $1, 
+                    service_fees = $2, 
+                    part_costs = $3, 
+                    total = $4, 
+                    spares = $5, 
+                    warranty = $6,
+                    proforma_number = $7,
+                    taxable_amount = $8,
+                    gst_rate = $9,
+                    gst_type = $10,
+                    cgst_amount = $11,
+                    sgst_amount = $12,
+                    igst_amount = $13,
+                    grand_total = $14,
+                    customer_gstin = $15,
+                    invoice_type = $16
+                WHERE complaint_id = $17`,
+                [
+                    receipt_number || existing.receipt_number,
+                    service_fees ?? 0,
+                    part_costs ?? 0,
+                    finalTotal,
+                    spares || '',
+                    warranty || '',
+                    proforma_number || existing.proforma_number || null,
+                    taxable_amount ?? 0,
+                    gst_rate ?? 18,
+                    gst_type || 'CGST_SGST',
+                    cgst_amount ?? 0,
+                    sgst_amount ?? 0,
+                    igst_amount ?? 0,
+                    finalTotal,
+                    customer_gstin || null,
+                    invoice_type || 'Service Report',
+                    complaint_id
+                ]
             );
 
             // Notification: invoice updated
@@ -627,9 +669,16 @@ app.post('/api/invoices', async (req, res) => {
         }
         
         const invoiceNum = receipt_number || ('INV-' + Date.now().toString().slice(-6));
+        const profNum = proforma_number || ('PI-' + new Date().getFullYear() + '-' + Date.now().toString().slice(-5));
         await db.query(
-            'INSERT INTO invoices (id, complaint_id, receipt_number, service_fees, part_costs, total, spares, warranty, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
-            [id, complaint_id, invoiceNum, service_fees ?? 0, part_costs ?? 0, total ?? 0, spares || '', warranty || '', ts]
+            `INSERT INTO invoices (
+                id, complaint_id, receipt_number, service_fees, part_costs, total, spares, warranty, created_at,
+                proforma_number, taxable_amount, gst_rate, gst_type, cgst_amount, sgst_amount, igst_amount, grand_total, customer_gstin, invoice_type
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
+            [
+                id, complaint_id, invoiceNum, service_fees ?? 0, part_costs ?? 0, finalTotal, spares || '', warranty || '', ts,
+                profNum, taxable_amount ?? 0, gst_rate ?? 18, gst_type || 'CGST_SGST', cgst_amount ?? 0, sgst_amount ?? 0, igst_amount ?? 0, finalTotal, customer_gstin || null, invoice_type || 'Service Report'
+            ]
         );
 
         // Notification: invoice created
@@ -659,6 +708,57 @@ app.get('/api/invoices', async (req, res) => {
             const result = await db.query('SELECT * FROM invoices');
             res.json(result.rows);
         }
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// =============== INVENTORY ===============
+app.get('/api/inventory', async (req, res) => {
+    try {
+        const result = await db.query('SELECT * FROM inventory ORDER BY name ASC');
+        res.json(result.rows);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/inventory', async (req, res) => {
+    const id = req.body.id || uuidv4();
+    const { name, part_number, category, unit_price, cost_price, quantity, hsn_code, gst_rate } = req.body;
+    try {
+        if (!name || !name.trim()) {
+            return res.status(400).json({ error: 'Item name is required' });
+        }
+        await db.query(
+            'INSERT INTO inventory (id, name, part_number, category, unit_price, cost_price, quantity, hsn_code, gst_rate) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
+            [id, name.trim(), part_number || '', category || 'General', parseFloat(unit_price) || 0, parseFloat(cost_price) || 0, parseInt(quantity, 10) || 0, hsn_code || '8473', parseFloat(gst_rate) || 18]
+        );
+        const result = await db.query('SELECT * FROM inventory WHERE id = $1', [id]);
+        res.json(result.rows[0]);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.put('/api/inventory/:id', async (req, res) => {
+    const { name, part_number, category, unit_price, cost_price, quantity, hsn_code, gst_rate } = req.body;
+    try {
+        await db.query(
+            'UPDATE inventory SET name = $1, part_number = $2, category = $3, unit_price = $4, cost_price = $5, quantity = $6, hsn_code = $7, gst_rate = $8 WHERE id = $9',
+            [name.trim(), part_number || '', category || 'General', parseFloat(unit_price) || 0, parseFloat(cost_price) || 0, parseInt(quantity, 10) || 0, hsn_code || '8473', parseFloat(gst_rate) || 18, req.params.id]
+        );
+        const result = await db.query('SELECT * FROM inventory WHERE id = $1', [req.params.id]);
+        res.json(result.rows[0]);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.delete('/api/inventory/:id', async (req, res) => {
+    try {
+        await db.query('DELETE FROM inventory WHERE id = $1', [req.params.id]);
+        res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -759,7 +859,7 @@ app.get('/api/pending-book/pdf', async (req, res) => {
 // =============== SETTINGS DOWNLOAD DB & TEMPLATES ===============
 app.get('/api/download-db', async (req, res) => {
     try {
-        const tables = ['users', 'customers', 'complaints', 'service_records', 'status_logs', 'invoices', 'settings', 'notifications'];
+        const tables = ['users', 'customers', 'complaints', 'service_records', 'status_logs', 'invoices', 'settings', 'notifications', 'inventory'];
         const backup = {};
         for (const table of tables) {
             const result = await db.query(`SELECT * FROM ${table}`);

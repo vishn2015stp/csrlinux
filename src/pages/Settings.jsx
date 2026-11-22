@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { DownloadCloud, Printer, Eye, Save, ToggleLeft, ToggleRight, Users, UserPlus, Trash2, Edit2, Lock, Database, Server, CheckCircle2, AlertCircle, RefreshCw, HardDrive } from 'lucide-react'
+import { DownloadCloud, Printer, Eye, Save, ToggleLeft, ToggleRight, Users, UserPlus, Trash2, Edit2, Lock, Database, Server, CheckCircle2, AlertCircle, RefreshCw, HardDrive, Package, Plus, Search, Tag } from 'lucide-react'
 import { api } from '../lib/api'
 import { useAuth } from '../context/AuthContext'
 
@@ -8,6 +8,15 @@ const DEFAULT_CONFIG = {
     shopAddress: '',
     shopPhone: '',
     shopEmail: '',
+    shopGstin: '',
+    stateName: 'Kerala',
+    stateCode: '32',
+    defaultGstRate: 18,
+    bankName: '',
+    accountName: '',
+    accountNo: '',
+    ifsc: '',
+    upiId: '',
     showLogo: false,
     showCustomerPhone: true,
     showCustomerEmail: false,
@@ -16,6 +25,7 @@ const DEFAULT_CONFIG = {
     showServiceMode: true,
     showDeviceIntaken: true,
     invoiceTerms: 'Thank you for choosing Hypertech Digital.\nAll repairs come with a standard 30-day warranty unless otherwise stated.',
+    proformaTerms: '1. This is a Proforma Invoice / Quotation and not a final Tax Invoice.\n2. Quotation is valid for 15 days from date of issue.\n3. Repairs will commence upon customer approval of this estimate.\n4. Spares subject to market availability.',
     intakeTerms: 'By leaving your device, you agree to our standard terms of service.\nNot responsible for data loss.',
     activeTab: 'intake'
 };
@@ -170,6 +180,24 @@ export default function Settings() {
     const [message, setMessage] = useState({ text: '', type: '' })
     const [printConfig, setPrintConfig] = useState(DEFAULT_CONFIG);
     const [activeTab, setActiveTab] = useState('intake');
+
+    // Inventory states
+    const [inventory, setInventory] = useState([]);
+    const [invSearch, setInvSearch] = useState('');
+    const [invCategoryFilter, setInvCategoryFilter] = useState('All');
+    const [showAddInvModal, setShowAddInvModal] = useState(false);
+    const [editingInvItem, setEditingInvItem] = useState(null);
+    const [invForm, setInvForm] = useState({
+        name: '',
+        part_number: '',
+        category: 'General',
+        unit_price: '',
+        cost_price: '',
+        quantity: '0',
+        hsn_code: '8473',
+        gst_rate: '18'
+    });
+    const [invMessage, setInvMessage] = useState({ text: '', type: '' });
 
     // User management states
     const [users, setUsers] = useState([]);
@@ -337,6 +365,56 @@ export default function Settings() {
         }
     };
 
+    const loadInventory = async () => {
+        try {
+            const data = await api.getInventory();
+            setInventory(data || []);
+        } catch (err) {
+            console.error(err);
+        }
+    };
+
+    const handleSaveNewItem = async (e) => {
+        e.preventDefault();
+        if (!invForm.name.trim()) return;
+        try {
+            await api.createInventoryItem(invForm);
+            setInvMessage({ text: '✓ Inventory item added successfully!', type: 'success' });
+            setShowAddInvModal(false);
+            setInvForm({ name: '', part_number: '', category: 'General', unit_price: '', cost_price: '', quantity: '0', hsn_code: '8473', gst_rate: '18' });
+            loadInventory();
+            setTimeout(() => setInvMessage({ text: '', type: '' }), 3000);
+        } catch (err) {
+            setInvMessage({ text: err.message || 'Failed to add item', type: 'error' });
+        }
+    };
+
+    const handleUpdateItem = async (e) => {
+        e.preventDefault();
+        if (!editingInvItem || !editingInvItem.name.trim()) return;
+        try {
+            await api.updateInventoryItem(editingInvItem.id, editingInvItem);
+            setInvMessage({ text: '✓ Item updated successfully!', type: 'success' });
+            setEditingInvItem(null);
+            loadInventory();
+            setTimeout(() => setInvMessage({ text: '', type: '' }), 3000);
+        } catch (err) {
+            setInvMessage({ text: err.message || 'Failed to update item', type: 'error' });
+        }
+    };
+
+    const handleDeleteItem = async (id, name) => {
+        if (!window.confirm(`Delete item "${name}" from inventory?`)) return;
+        try {
+            await api.deleteInventoryItem(id);
+            setInvMessage({ text: '✓ Item deleted!', type: 'success' });
+            loadInventory();
+            setTimeout(() => setInvMessage({ text: '', type: '' }), 3000);
+        } catch (err) {
+            setInvMessage({ text: err.message || 'Failed to delete item', type: 'error' });
+        }
+    };
+
     useEffect(() => {
         const loadSettings = async () => {
             try {
@@ -350,6 +428,7 @@ export default function Settings() {
         };
         loadSettings();
         loadUsers();
+        loadInventory();
         if (isAdmin) loadDbConfig();
     }, [isAdmin]);
 
@@ -491,6 +570,26 @@ export default function Settings() {
                     </button>
                 )}
                 <button 
+                    onClick={() => setActiveSettingsTab('inventory')} 
+                    style={{
+                        background: 'transparent',
+                        border: 'none',
+                        padding: '0.75rem 1rem',
+                        borderBottom: activeSettingsTab === 'inventory' ? '3px solid var(--accent)' : '3px solid transparent',
+                        color: activeSettingsTab === 'inventory' ? 'var(--accent)' : 'var(--text-secondary)',
+                        fontWeight: 'bold',
+                        cursor: 'pointer',
+                        borderRadius: 0,
+                        margin: 0,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                    }}
+                >
+                    <Package size={16} />
+                    Inventory & Stock
+                </button>
+                <button 
                     onClick={() => setActiveSettingsTab('password')} 
                     style={{
                         background: 'transparent',
@@ -549,6 +648,40 @@ export default function Settings() {
                                 <input style={inputStyle} value={printConfig.shopEmail} onChange={e => set('shopEmail', e.target.value)} placeholder="info@shop.com" />
                             </div>
 
+                            {/* GST & Tax Details */}
+                            <div style={sectionStyle}>
+                                <div style={sectionTitleStyle}>GST & Tax Information</div>
+                                <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Shop GSTIN</label>
+                                <input style={inputStyle} value={printConfig.shopGstin || ''} onChange={e => set('shopGstin', e.target.value)} placeholder="e.g. 32AAAAA0000A1Z5" />
+                                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '8px' }}>
+                                    <div>
+                                        <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>State Name</label>
+                                        <input style={inputStyle} value={printConfig.stateName || ''} onChange={e => set('stateName', e.target.value)} placeholder="Kerala" />
+                                    </div>
+                                    <div>
+                                        <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>State Code</label>
+                                        <input style={inputStyle} value={printConfig.stateCode || ''} onChange={e => set('stateCode', e.target.value)} placeholder="32" />
+                                    </div>
+                                </div>
+                                <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Default GST Rate (%)</label>
+                                <input type="number" style={inputStyle} value={printConfig.defaultGstRate ?? 18} onChange={e => set('defaultGstRate', parseFloat(e.target.value) || 0)} placeholder="18" />
+                            </div>
+
+                            {/* Bank & Payment Details */}
+                            <div style={sectionStyle}>
+                                <div style={sectionTitleStyle}>Bank & Payment Details (For Invoices/Proforma)</div>
+                                <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Bank Name</label>
+                                <input style={inputStyle} value={printConfig.bankName || ''} onChange={e => set('bankName', e.target.value)} placeholder="State Bank of India" />
+                                <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Account Holder Name</label>
+                                <input style={inputStyle} value={printConfig.accountName || ''} onChange={e => set('accountName', e.target.value)} placeholder="Hypertech Digital" />
+                                <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Account Number</label>
+                                <input style={inputStyle} value={printConfig.accountNo || ''} onChange={e => set('accountNo', e.target.value)} placeholder="123456789012" />
+                                <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>IFSC Code</label>
+                                <input style={inputStyle} value={printConfig.ifsc || ''} onChange={e => set('ifsc', e.target.value)} placeholder="SBIN0001234" />
+                                <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>UPI ID (for QR / Quick Pay)</label>
+                                <input style={inputStyle} value={printConfig.upiId || ''} onChange={e => set('upiId', e.target.value)} placeholder="hypertech@upi" />
+                            </div>
+
                             {/* Visibility */}
                             <div style={sectionStyle}>
                                 <div style={sectionTitleStyle}>Show / Hide Fields</div>
@@ -567,6 +700,8 @@ export default function Settings() {
                                 <textarea style={{ ...inputStyle, resize: 'vertical' }} rows={3} value={printConfig.intakeTerms} onChange={e => set('intakeTerms', e.target.value)} />
                                 <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Service Report Footer</label>
                                 <textarea style={{ ...inputStyle, resize: 'vertical' }} rows={3} value={printConfig.invoiceTerms} onChange={e => set('invoiceTerms', e.target.value)} />
+                                <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Proforma Invoice / Quotation Terms</label>
+                                <textarea style={{ ...inputStyle, resize: 'vertical' }} rows={3} value={printConfig.proformaTerms || ''} onChange={e => set('proformaTerms', e.target.value)} />
                             </div>
 
                             <button onClick={handleSave} disabled={loadingConfig} style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '0.85rem', borderRadius: '8px', fontSize: '1rem', fontWeight: '700' }}>
@@ -1234,6 +1369,444 @@ sudo systemctl start csrlinux`}
                             </div>
                         )}
                     </div>
+                </div>
+            )}
+
+            {/* ── INVENTORY & STOCK MANAGEMENT TAB ── */}
+            {activeSettingsTab === 'inventory' && (
+                <div style={{ maxWidth: '1200px' }}>
+                    {/* Header Card */}
+                    <div className="card" style={{ padding: '1.5rem', marginBottom: '1.5rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.25rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <Package size={24} color="var(--accent)" />
+                                <div>
+                                    <h2 style={{ margin: 0, fontSize: '1.25rem' }}>Inventory & Spare Parts Stock</h2>
+                                    <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                                        Manage spare parts, stock levels, unit prices, HSN codes, and GST rates for repair quotations and billing.
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => {
+                                    setInvForm({ name: '', part_number: '', category: 'General', unit_price: '', cost_price: '', quantity: '0', hsn_code: '8473', gst_rate: '18' });
+                                    setShowAddInvModal(true);
+                                }}
+                                style={{
+                                    display: 'flex', alignItems: 'center', gap: '8px',
+                                    padding: '0.65rem 1.25rem', background: 'var(--accent)',
+                                    color: '#000', border: 'none', borderRadius: '6px',
+                                    cursor: 'pointer', fontWeight: 'bold'
+                                }}
+                            >
+                                <Plus size={18} />
+                                Add Spare / Item
+                            </button>
+                        </div>
+
+                        {/* Quick Stats Bar */}
+                        <div style={{
+                            display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                            gap: '1rem', background: '#f6f3eb', padding: '1rem', borderRadius: '8px',
+                            border: '1px solid var(--border-color)', marginBottom: '1.25rem'
+                        }}>
+                            <div>
+                                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Total Items Cataloged</div>
+                                <div style={{ fontWeight: '700', fontSize: '1.3rem', marginTop: '2px', color: 'var(--accent)' }}>{inventory.length}</div>
+                            </div>
+                            <div>
+                                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Total Units In Stock</div>
+                                <div style={{ fontWeight: '700', fontSize: '1.3rem', marginTop: '2px' }}>
+                                    {inventory.reduce((sum, item) => sum + (parseInt(item.quantity) || 0), 0)}
+                                </div>
+                            </div>
+                            <div>
+                                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Low Stock Alert (&le; 3 units)</div>
+                                <div style={{ fontWeight: '700', fontSize: '1.3rem', marginTop: '2px', color: inventory.filter(i => (parseInt(i.quantity) || 0) <= 3).length > 0 ? 'var(--danger)' : 'var(--success)' }}>
+                                    {inventory.filter(i => (parseInt(i.quantity) || 0) <= 3).length}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Search & Filter Toolbar */}
+                        <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                            <div style={{ flex: '1 1 300px', display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--bg-color)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '0.4rem 0.75rem' }}>
+                                <Search size={16} color="var(--text-secondary)" />
+                                <input
+                                    type="text"
+                                    value={invSearch}
+                                    onChange={e => setInvSearch(e.target.value)}
+                                    placeholder="Search by part name, part #, or HSN code..."
+                                    style={{ background: 'transparent', border: 'none', color: 'var(--text-primary)', width: '100%', outline: 'none', fontSize: '0.88rem' }}
+                                />
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <Tag size={16} color="var(--text-secondary)" />
+                                <select
+                                    value={invCategoryFilter}
+                                    onChange={e => setInvCategoryFilter(e.target.value)}
+                                    style={{ padding: '0.45rem 0.75rem', background: 'var(--bg-color)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', borderRadius: '6px', fontSize: '0.88rem', cursor: 'pointer' }}
+                                >
+                                    {['All', 'General', 'Storage', 'RAM', 'Screen/Display', 'Battery', 'Printer Parts', 'Motherboard/IC', 'Accessories', 'Power/Adapters'].map(cat => (
+                                        <option key={cat} value={cat}>{cat} Categories</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <button
+                                onClick={loadInventory}
+                                style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--panel-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', padding: '0.45rem 0.85rem', borderRadius: '6px', fontSize: '0.85rem', cursor: 'pointer' }}
+                            >
+                                <RefreshCw size={14} /> Refresh
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Feedback message */}
+                    {invMessage.text && (
+                        <div style={{
+                            padding: '0.75rem 1rem', borderRadius: '6px', marginBottom: '1.5rem',
+                            background: invMessage.type === 'success' ? 'rgba(3,218,198,0.1)' : 'rgba(207,102,121,0.1)',
+                            color: invMessage.type === 'success' ? 'var(--success)' : 'var(--danger)',
+                            border: `1px solid ${invMessage.type === 'success' ? 'rgba(3,218,198,0.3)' : 'rgba(207,102,121,0.3)'}`
+                        }}>
+                            {invMessage.text}
+                        </div>
+                    )}
+
+                    {/* Inventory Table Card */}
+                    <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+                        <div className="table-responsive">
+                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.88rem' }}>
+                                <thead>
+                                    <tr style={{ background: '#f6f3eb', borderBottom: '1px solid var(--border-color)', textAlign: 'left', color: 'var(--text-secondary)', textTransform: 'uppercase', fontSize: '0.75rem' }}>
+                                        <th style={{ padding: '0.75rem 1rem' }}>Item / Part Name</th>
+                                        <th style={{ padding: '0.75rem 1rem' }}>Category</th>
+                                        <th style={{ padding: '0.75rem 1rem' }}>HSN / SAC</th>
+                                        <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>Unit Selling Price</th>
+                                        <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>Cost Price</th>
+                                        <th style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>Stock Qty</th>
+                                        <th style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>GST Rate</th>
+                                        <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {inventory
+                                        .filter(item => {
+                                            const matchesSearch = !invSearch.trim() ||
+                                                (item.name || '').toLowerCase().includes(invSearch.toLowerCase()) ||
+                                                (item.part_number || '').toLowerCase().includes(invSearch.toLowerCase()) ||
+                                                (item.hsn_code || '').toLowerCase().includes(invSearch.toLowerCase());
+                                            const matchesCat = invCategoryFilter === 'All' || item.category === invCategoryFilter;
+                                            return matchesSearch && matchesCat;
+                                        })
+                                        .map(item => {
+                                            const qty = parseInt(item.quantity) || 0;
+                                            const stockBadge = qty === 0 
+                                                ? { bg: 'rgba(207,102,121,0.15)', color: 'var(--danger)', label: 'Out of Stock (0)' }
+                                                : qty <= 3 
+                                                ? { bg: 'rgba(255,183,77,0.15)', color: '#ffb74d', label: `Low (${qty})` }
+                                                : { bg: 'rgba(3,218,198,0.15)', color: 'var(--success)', label: `${qty} in stock` };
+
+                                            return (
+                                                <tr key={item.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                                                    <td style={{ padding: '0.75rem 1rem' }}>
+                                                        <div style={{ fontWeight: '600' }}>{item.name}</div>
+                                                        {item.part_number && (
+                                                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>
+                                                                PN: {item.part_number}
+                                                            </div>
+                                                        )}
+                                                    </td>
+                                                    <td style={{ padding: '0.75rem 1rem' }}>
+                                                        <span style={{ fontSize: '0.75rem', padding: '2px 8px', borderRadius: '12px', background: 'rgba(0,0,0,0.05)', color: 'var(--text-secondary)' }}>
+                                                            {item.category || 'General'}
+                                                        </span>
+                                                    </td>
+                                                    <td style={{ padding: '0.75rem 1rem', fontFamily: 'monospace', color: 'var(--text-secondary)' }}>
+                                                        {item.hsn_code || '-'}
+                                                    </td>
+                                                    <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: 'bold', color: 'var(--accent)' }}>
+                                                        ₹{Number(item.unit_price || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                                    </td>
+                                                    <td style={{ padding: '0.75rem 1rem', textAlign: 'right', color: 'var(--text-secondary)' }}>
+                                                        {item.cost_price ? `₹${Number(item.cost_price).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '-'}
+                                                    </td>
+                                                    <td style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>
+                                                        <span style={{ fontSize: '0.75rem', padding: '3px 9px', borderRadius: '12px', fontWeight: '600', background: stockBadge.bg, color: stockBadge.color }}>
+                                                            {stockBadge.label}
+                                                        </span>
+                                                    </td>
+                                                    <td style={{ padding: '0.75rem 1rem', textAlign: 'center', fontWeight: '600' }}>
+                                                        {item.gst_rate ?? 18}%
+                                                    </td>
+                                                    <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>
+                                                        <div style={{ display: 'inline-flex', gap: '6px' }}>
+                                                            <button
+                                                                onClick={() => setEditingInvItem({ ...item })}
+                                                                title="Edit Item"
+                                                                style={{ padding: '4px 8px', background: 'var(--panel-bg)', border: '1px solid var(--border-color)', borderRadius: '4px', cursor: 'pointer', color: 'var(--accent)' }}
+                                                            >
+                                                                <Edit2 size={14} />
+                                                            </button>
+                                                            <button
+                                                                onClick={() => handleDeleteItem(item.id, item.name)}
+                                                                title="Delete Item"
+                                                                style={{ padding: '4px 8px', background: 'var(--panel-bg)', border: '1px solid var(--border-color)', borderRadius: '4px', cursor: 'pointer', color: 'var(--danger)' }}
+                                                            >
+                                                                <Trash2 size={14} />
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    {inventory.length === 0 && (
+                                        <tr>
+                                            <td colSpan={8} style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                                                No inventory items registered yet. Click "+ Add Spare / Item" to add parts.
+                                            </td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    {/* ── ADD ITEM MODAL ── */}
+                    {showAddInvModal && (
+                        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.65)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+                            <div style={{ background: 'var(--panel-bg)', border: '1px solid var(--border-color)', borderRadius: '8px', width: '100%', maxWidth: '520px', padding: '1.5rem', boxShadow: '0 8px 30px rgba(0,0,0,0.5)' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+                                    <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px', fontSize: '1.1rem' }}>
+                                        <Plus size={18} color="var(--accent)" /> Add Spare Part / Inventory Item
+                                    </h3>
+                                    <button onClick={() => setShowAddInvModal(false)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '1.2rem', padding: '4px' }}>✕</button>
+                                </div>
+                                <form onSubmit={handleSaveNewItem}>
+                                    <div style={{ marginBottom: '0.85rem' }}>
+                                        <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Item / Part Name *</label>
+                                        <input
+                                            type="text"
+                                            required
+                                            value={invForm.name}
+                                            onChange={e => setInvForm({ ...invForm, name: e.target.value })}
+                                            placeholder="e.g. Kingston 512GB NVMe SSD"
+                                            style={inputStyle}
+                                        />
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '0.85rem' }}>
+                                        <div>
+                                            <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Part # / Model</label>
+                                            <input
+                                                type="text"
+                                                value={invForm.part_number}
+                                                onChange={e => setInvForm({ ...invForm, part_number: e.target.value })}
+                                                placeholder="e.g. SNV2S/500G"
+                                                style={inputStyle}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Category</label>
+                                            <select
+                                                value={invForm.category}
+                                                onChange={e => setInvForm({ ...invForm, category: e.target.value })}
+                                                style={{ ...inputStyle, cursor: 'pointer' }}
+                                            >
+                                                {['General', 'Storage', 'RAM', 'Screen/Display', 'Battery', 'Printer Parts', 'Motherboard/IC', 'Accessories', 'Power/Adapters'].map(c => (
+                                                    <option key={c} value={c}>{c}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '0.85rem' }}>
+                                        <div>
+                                            <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Selling Price (₹) *</label>
+                                            <input
+                                                type="number"
+                                                step="0.01"
+                                                required
+                                                value={invForm.unit_price}
+                                                onChange={e => setInvForm({ ...invForm, unit_price: e.target.value })}
+                                                placeholder="e.g. 2800"
+                                                style={inputStyle}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Cost / Purchase Price (₹)</label>
+                                            <input
+                                                type="number"
+                                                step="0.01"
+                                                value={invForm.cost_price}
+                                                onChange={e => setInvForm({ ...invForm, cost_price: e.target.value })}
+                                                placeholder="e.g. 2200"
+                                                style={inputStyle}
+                                            />
+                                        </div>
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '1.25rem' }}>
+                                        <div>
+                                            <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Initial Stock Qty</label>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                value={invForm.quantity}
+                                                onChange={e => setInvForm({ ...invForm, quantity: e.target.value })}
+                                                placeholder="0"
+                                                style={inputStyle}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>HSN / SAC</label>
+                                            <input
+                                                type="text"
+                                                value={invForm.hsn_code}
+                                                onChange={e => setInvForm({ ...invForm, hsn_code: e.target.value })}
+                                                placeholder="8473"
+                                                style={inputStyle}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>GST Rate (%)</label>
+                                            <select
+                                                value={invForm.gst_rate}
+                                                onChange={e => setInvForm({ ...invForm, gst_rate: e.target.value })}
+                                                style={{ ...inputStyle, cursor: 'pointer' }}
+                                            >
+                                                <option value="0">0% (Nil)</option>
+                                                <option value="5">5%</option>
+                                                <option value="12">12%</option>
+                                                <option value="18">18%</option>
+                                                <option value="28">28%</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '10px' }}>
+                                        <button type="submit" style={{ flex: 1, padding: '0.75rem', background: 'var(--accent)', color: '#000', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
+                                            Add to Inventory
+                                        </button>
+                                        <button type="button" onClick={() => setShowAddInvModal(false)} style={{ padding: '0.75rem 1.25rem', background: 'transparent', border: '1px solid var(--border-color)', color: 'var(--text-secondary)', borderRadius: '6px', cursor: 'pointer' }}>
+                                            Cancel
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ── EDIT ITEM MODAL ── */}
+                    {editingInvItem && (
+                        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.65)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+                            <div style={{ background: 'var(--panel-bg)', border: '1px solid var(--border-color)', borderRadius: '8px', width: '100%', maxWidth: '520px', padding: '1.5rem', boxShadow: '0 8px 30px rgba(0,0,0,0.5)' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+                                    <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px', fontSize: '1.1rem' }}>
+                                        <Edit2 size={18} color="var(--accent)" /> Edit Inventory Item
+                                    </h3>
+                                    <button onClick={() => setEditingInvItem(null)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '1.2rem', padding: '4px' }}>✕</button>
+                                </div>
+                                <form onSubmit={handleUpdateItem}>
+                                    <div style={{ marginBottom: '0.85rem' }}>
+                                        <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Item / Part Name *</label>
+                                        <input
+                                            type="text"
+                                            required
+                                            value={editingInvItem.name}
+                                            onChange={e => setEditingInvItem({ ...editingInvItem, name: e.target.value })}
+                                            style={inputStyle}
+                                        />
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '0.85rem' }}>
+                                        <div>
+                                            <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Part # / Model</label>
+                                            <input
+                                                type="text"
+                                                value={editingInvItem.part_number || ''}
+                                                onChange={e => setEditingInvItem({ ...editingInvItem, part_number: e.target.value })}
+                                                style={inputStyle}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Category</label>
+                                            <select
+                                                value={editingInvItem.category || 'General'}
+                                                onChange={e => setEditingInvItem({ ...editingInvItem, category: e.target.value })}
+                                                style={{ ...inputStyle, cursor: 'pointer' }}
+                                            >
+                                                {['General', 'Storage', 'RAM', 'Screen/Display', 'Battery', 'Printer Parts', 'Motherboard/IC', 'Accessories', 'Power/Adapters'].map(c => (
+                                                    <option key={c} value={c}>{c}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '0.85rem' }}>
+                                        <div>
+                                            <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Selling Price (₹) *</label>
+                                            <input
+                                                type="number"
+                                                step="0.01"
+                                                required
+                                                value={editingInvItem.unit_price}
+                                                onChange={e => setEditingInvItem({ ...editingInvItem, unit_price: e.target.value })}
+                                                style={inputStyle}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Cost / Purchase Price (₹)</label>
+                                            <input
+                                                type="number"
+                                                step="0.01"
+                                                value={editingInvItem.cost_price || ''}
+                                                onChange={e => setEditingInvItem({ ...editingInvItem, cost_price: e.target.value })}
+                                                style={inputStyle}
+                                            />
+                                        </div>
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '1.25rem' }}>
+                                        <div>
+                                            <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Quantity In Stock</label>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                value={editingInvItem.quantity}
+                                                onChange={e => setEditingInvItem({ ...editingInvItem, quantity: e.target.value })}
+                                                style={inputStyle}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>HSN / SAC</label>
+                                            <input
+                                                type="text"
+                                                value={editingInvItem.hsn_code || ''}
+                                                onChange={e => setEditingInvItem({ ...editingInvItem, hsn_code: e.target.value })}
+                                                style={inputStyle}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>GST Rate (%)</label>
+                                            <select
+                                                value={editingInvItem.gst_rate ?? 18}
+                                                onChange={e => setEditingInvItem({ ...editingInvItem, gst_rate: e.target.value })}
+                                                style={{ ...inputStyle, cursor: 'pointer' }}
+                                            >
+                                                <option value="0">0% (Nil)</option>
+                                                <option value="5">5%</option>
+                                                <option value="12">12%</option>
+                                                <option value="18">18%</option>
+                                                <option value="28">28%</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '10px' }}>
+                                        <button type="submit" style={{ flex: 1, padding: '0.75rem', background: 'var(--accent)', color: '#000', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>
+                                            Save Changes
+                                        </button>
+                                        <button type="button" onClick={() => setEditingInvItem(null)} style={{ padding: '0.75rem 1.25rem', background: 'transparent', border: '1px solid var(--border-color)', color: 'var(--text-secondary)', borderRadius: '6px', cursor: 'pointer' }}>
+                                            Cancel
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
         </div>

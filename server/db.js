@@ -199,6 +199,18 @@ function ensureInitialized() {
                         is_read BOOLEAN DEFAULT false,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     );
+                    CREATE TABLE IF NOT EXISTS inventory (
+                        id TEXT PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        part_number TEXT,
+                        category TEXT DEFAULT 'General',
+                        unit_price REAL DEFAULT 0,
+                        cost_price REAL DEFAULT 0,
+                        quantity INTEGER DEFAULT 0,
+                        hsn_code TEXT DEFAULT '8473',
+                        gst_rate REAL DEFAULT 18,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    );
                 `);
 
                 // Safely add columns if they don't exist
@@ -256,8 +268,46 @@ function ensureInitialized() {
                 try {
                     await pool.query("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS spares TEXT;");
                     await pool.query("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS warranty TEXT;");
+                    await pool.query("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS proforma_number TEXT;");
+                    await pool.query("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS taxable_amount REAL DEFAULT 0;");
+                    await pool.query("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS gst_rate REAL DEFAULT 18;");
+                    await pool.query("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS gst_type TEXT DEFAULT 'CGST_SGST';");
+                    await pool.query("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS cgst_amount REAL DEFAULT 0;");
+                    await pool.query("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS sgst_amount REAL DEFAULT 0;");
+                    await pool.query("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS igst_amount REAL DEFAULT 0;");
+                    await pool.query("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS grand_total REAL DEFAULT 0;");
+                    await pool.query("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS customer_gstin TEXT;");
+                    await pool.query("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS invoice_type TEXT DEFAULT 'Service Report';");
                 } catch (err) {
                     console.error("Error adding invoice billing columns:", err.message);
+                }
+
+                // Seed sample inventory if empty
+                try {
+                    const invCountRes = await pool.query('SELECT COUNT(*) as count FROM inventory');
+                    if (parseInt(invCountRes.rows[0]?.count || '0', 10) === 0) {
+                        const defaultInventory = [
+                            { name: '256GB SATA 2.5 SSD', part_number: 'SSD-SATA-256', category: 'Storage', unit_price: 1400, cost_price: 1050, quantity: 10, hsn_code: '8471', gst_rate: 18 },
+                            { name: '512GB NVMe M.2 SSD', part_number: 'SSD-NVME-512', category: 'Storage', unit_price: 2600, cost_price: 1950, quantity: 8, hsn_code: '8471', gst_rate: 18 },
+                            { name: '8GB DDR4 Laptop RAM (3200MHz)', part_number: 'RAM-DDR4-8G-L', category: 'Memory', unit_price: 1650, cost_price: 1250, quantity: 6, hsn_code: '8473', gst_rate: 18 },
+                            { name: '8GB DDR4 Desktop RAM', part_number: 'RAM-DDR4-8G-D', category: 'Memory', unit_price: 1550, cost_price: 1150, quantity: 5, hsn_code: '8473', gst_rate: 18 },
+                            { name: '15.6 FHD 30-Pin Laptop Screen', part_number: 'SCR-156-FHD', category: 'Laptop', unit_price: 4200, cost_price: 3300, quantity: 3, hsn_code: '8473', gst_rate: 18 },
+                            { name: 'Universal Laptop Charger Adapter 65W', part_number: 'ADP-UNIV-65W', category: 'Laptop', unit_price: 850, cost_price: 550, quantity: 7, hsn_code: '8504', gst_rate: 18 },
+                            { name: 'Laptop DC Power Jack Socket', part_number: 'JACK-DC-STD', category: 'Laptop', unit_price: 450, cost_price: 150, quantity: 15, hsn_code: '8473', gst_rate: 18 },
+                            { name: 'SMPS 450W Desktop Power Supply', part_number: 'SMPS-450W', category: 'Desktop', unit_price: 1250, cost_price: 900, quantity: 4, hsn_code: '8504', gst_rate: 18 },
+                            { name: 'Canon 12A / HP 1005 Toner Cartridge', part_number: 'CART-12A', category: 'Printer', unit_price: 750, cost_price: 450, quantity: 10, hsn_code: '8443', gst_rate: 18 },
+                            { name: 'High-Performance Thermal Paste (Tube)', part_number: 'THM-PASTE-TUBE', category: 'Accessories', unit_price: 250, cost_price: 90, quantity: 20, hsn_code: '3824', gst_rate: 18 }
+                        ];
+                        for (const item of defaultInventory) {
+                            await pool.query(
+                                'INSERT INTO inventory (id, name, part_number, category, unit_price, cost_price, quantity, hsn_code, gst_rate) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
+                                [crypto.randomUUID(), item.name, item.part_number, item.category, item.unit_price, item.cost_price, item.quantity, item.hsn_code, item.gst_rate]
+                            );
+                        }
+                        console.log('Default inventory items seeded.');
+                    }
+                } catch (err) {
+                    console.error("Error seeding inventory:", err.message);
                 }
 
                 try {

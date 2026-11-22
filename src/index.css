@@ -367,71 +367,157 @@ button:disabled {
   display: none;
 }
 
-/* Receipt Printing Spec */
-/* A4 Print Layout Specification */
+/* ========================================================
+   A4 Print Specification & Document Printing
+   ======================================================== */
+@page {
+  size: A4 portrait;
+  margin: 10mm 12mm 10mm 12mm;
+}
+
+/* Screen styles for A4 Print Modal */
+.a4-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.88);
+  backdrop-filter: blur(4px);
+  z-index: 99999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  overflow-y: auto;
+  padding: 1rem;
+  box-sizing: border-box;
+}
+
+.a4-modal-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  width: 100%;
+  max-width: 210mm;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.25rem;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.a4-print-sheet {
+  width: 210mm;
+  min-height: 297mm;
+  background: #ffffff;
+  color: #111827;
+  padding: 12mm 14mm;
+  box-sizing: border-box;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  border-radius: 2px;
+  margin: 0 auto 2rem auto;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 11.5px;
+  line-height: 1.4;
+  position: relative;
+}
+
 @media print {
   @page {
     size: A4 portrait;
-    margin: 0;
+    margin: 10mm 12mm 10mm 12mm;
   }
 
-  body {
-    background-color: #fff !important;
-    color: #000 !important;
-    font-family: Arial, sans-serif !important;
+  /* When printing an A4 document via #print-root or has-print-portal:
+     COMPLETELY hide the main application #root and any floating/app elements */
+  body:has(#print-root:not(:empty)) #root,
+  body.has-print-portal #root,
+  body.is-printing #root {
+    display: none !important;
+  }
+
+  /* Always hide all UI chrome */
+  .sidebar,
+  .app-header,
+  .mobile-header,
+  .mobile-overlay,
+  .floating-add-btn,
+  .a4-modal-toolbar,
+  .non-print,
+  .no-print,
+  button {
+    display: none !important;
+  }
+
+  /* Reset body and html for print */
+  html, body {
+    width: 210mm !important;
+    height: auto !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    margin: 0 !important;
+    padding: 0 !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
 
-  .sidebar,
-  .non-print,
-  button,
-  .mobile-header,
-  .app-header {
-    display: none !important;
+  /* Print portal takes full page cleanly */
+  #print-root {
+    display: block !important;
+    position: static !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
   }
 
-  /* Reset outer overlay for print */
-  div[style*="position: fixed"] {
+  .a4-modal-overlay {
     position: static !important;
     background: transparent !important;
+    padding: 0 !important;
+    margin: 0 !important;
     display: block !important;
-    box-shadow: none !important;
-    padding: 0 !important;
-    z-index: auto !important;
-  }
-
-  div[style*="background: white"],
-  div[style*="background: var(--panel-bg)"] {
-    background: transparent !important;
-    box-shadow: none !important;
-    width: 100% !important;
-    max-width: 100% !important;
-    padding: 0 !important;
-    margin: 0 !important;
-    border: none !important;
-  }
-
-  .main-content {
-    margin: 0 !important;
-    padding: 0 !important;
-    width: 100% !important;
     overflow: visible !important;
   }
 
-  .container {
-    padding: 0 !important;
-    margin: 0 !important;
+  .a4-print-sheet {
+    width: 100% !important;
     max-width: 100% !important;
+    min-height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    page-break-inside: avoid !important;
+    page-break-after: avoid !important;
+    background: #ffffff !important;
+    color: #000000 !important;
   }
 
-  .print-receipt,
-  .invoice-print-area {
+  table {
+    page-break-inside: avoid !important;
+  }
+
+  tr, td, th {
+    page-break-inside: avoid !important;
+  }
+
+  /* Fallback support for older receipt containers */
+  body:not(.has-print-portal) .non-print {
+    display: none !important;
+  }
+
+  body:not(.has-print-portal) .print-receipt,
+  body:not(.has-print-portal) .invoice-print-area {
     display: block !important;
     width: 100% !important;
     max-width: 100% !important;
     margin: 0 auto !important;
-    padding: 20mm !important;
+    padding: 10mm !important;
     box-sizing: border-box !important;
     color: #000 !important;
   }

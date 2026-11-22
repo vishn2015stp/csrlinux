@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { useLocation } from 'react-router-dom';
 import { Search, Filter, Printer, FileText, X, Eye } from 'lucide-react';
 import JobDetailModal from '../components/JobDetailModal';
+import A4PrintModal from '../components/A4PrintModal';
 
 export default function Requests() {
     const { user } = useAuth();
@@ -520,101 +521,17 @@ export default function Requests() {
                 </div>
             )}
 
-            {/* Print Invoice Overlay (triggered via print buttons) */}
+            {/* Print Document Modal (A4 Print / Proforma / Service Report) */}
             {printInvoiceData && (
-                <div style={{ position: 'fixed', top: 0, left: 0, bottom: 0, right: 0, background: 'rgba(0,0,0,0.85)', zIndex: 9999, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-                    <div style={{ background: 'white', color: 'black', padding: '1.5rem 1rem', width: '500px', maxWidth: '95%', borderRadius: '4px', boxSizing: 'border-box' }}>
-                        <div className="non-print" style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1rem', gap: '0.5rem' }}>
-                            <button onClick={triggerPrint} style={{ background: 'var(--border-color)', color: 'white', border: 'none', padding: '0.5rem 1rem', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}><Printer size={16} /> Print</button>
-                            <button onClick={() => setPrintInvoiceData(null)} style={{ background: '#e53e3e', color: 'white', border: 'none', padding: '0.5rem 1rem', borderRadius: '4px', cursor: 'pointer' }}>Close</button>
-                        </div>
-                        <div className="invoice-print-area" style={{
-                            background: '#fff', color: '#000',
-                            padding: '24px', borderRadius: '0',
-                            fontFamily: 'Arial, sans-serif', fontSize: '13px',
-                            width: '100%', margin: '0 auto',
-                        }}>
-                            <div style={{ textAlign: 'center', borderBottom: '2px solid #000', paddingBottom: '14px', marginBottom: '14px' }}>
-                                <div style={{ fontSize: '20px', fontWeight: 'bold' }}>{printConfig.shopName || 'Your Shop Name'}</div>
-                                {printConfig.shopAddress && <div style={{ fontSize: '11px', marginTop: '4px', whiteSpace: 'pre-line' }}>{printConfig.shopAddress}</div>}
-                                {printConfig.shopPhone && <div style={{ fontSize: '11px' }}>Tel: {printConfig.shopPhone}</div>}
-                                {printConfig.shopEmail && <div style={{ fontSize: '11px' }}>{printConfig.shopEmail}</div>}
-                                <div style={{ marginTop: '10px', fontSize: '15px', fontWeight: 'bold', letterSpacing: '1px' }}>SERVICE REPORT</div>
-                            </div>
-
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', fontSize: '12px' }}>
-                                <div>
-                                    <div><b>Receipt #:</b> {printInvoiceData.invoice.receipt_number || 'Pending'}</div>
-                                    <div><b>Date:</b> {new Date().toLocaleDateString('en-GB').replace(/\//g, '-')}</div>
-                                </div>
-                                <div style={{ textAlign: 'right' }}>
-                                    <div><b>CSR #:</b> {printInvoiceData.job.csr_number || printInvoiceData.job.id.split('-')[0].toUpperCase()}</div>
-                                    {printConfig.showTechnician && <div><b>Tech:</b> {user?.username || 'Admin'}</div>}
-                                </div>
-                            </div>
-
-                            <div style={{ background: '#f5f5f5', padding: '8px 10px', borderRadius: '4px', marginBottom: '12px', fontSize: '12px' }}>
-                                <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Customer</div>
-                                <div>{printInvoiceData.customer.name}</div>
-                                {printConfig.showCustomerPhone && <div>{printInvoiceData.customer.phone}</div>}
-                                <div style={{ marginTop: '4px' }}><b>Device:</b> {printInvoiceData.job.item_name}</div>
-                                {printConfig.showSerialNo && <div><b>S/N:</b> {printInvoiceData.job.serial_no || '—'}</div>}
-                            </div>
-
-                            <div style={{ marginBottom: '12px', fontSize: '12px' }}>
-                                <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Work Performed</div>
-                                <div style={{ background: '#f9f9f9', padding: '6px', border: '1px solid #ddd' }}>
-                                    {printInvoiceData.job.issue}
-                                </div>
-                            </div>
-
-                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', marginBottom: '12px' }}>
-                                <thead>
-                                    <tr style={{ background: 'var(--border-color)', color: 'var(--text-primary)' }}>
-                                        <th style={{ padding: '5px 8px', textAlign: 'left', borderBottom: '1px solid #000' }}>Description</th>
-                                        <th style={{ padding: '5px 8px', textAlign: 'right', borderBottom: '1px solid #000' }}>Amount</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr style={{ borderBottom: '1px solid #ddd' }}>
-                                        <td style={{ padding: '5px 8px' }}>Service & Labor</td>
-                                        <td style={{ padding: '5px 8px', textAlign: 'right' }}>₹{printInvoiceData.invoice.service_fees || 0}</td>
-                                    </tr>
-                                    <tr style={{ borderBottom: '1px solid #ddd' }}>
-                                        <td style={{ padding: '5px 8px' }}>
-                                            Spare Parts
-                                            {printInvoiceData.invoice.spares && (
-                                                <div style={{ fontSize: '10px', color: '#555', marginTop: '2px' }}>
-                                                    {(() => {
-                                                        const sparesStr = printInvoiceData.invoice.spares;
-                                                        if (sparesStr.startsWith('[')) {
-                                                            try {
-                                                                return JSON.parse(sparesStr).map(s => `${s.name}`).join(', ');
-                                                            } catch (e) {
-                                                                return sparesStr;
-                                                            }
-                                                        }
-                                                        return sparesStr;
-                                                    })()}
-                                                </div>
-                                            )}
-                                            {printInvoiceData.invoice.warranty && <div style={{ fontSize: '10px', color: '#555', marginTop: '2px' }}>Warranty: {printInvoiceData.invoice.warranty}</div>}
-                                        </td>
-                                        <td style={{ padding: '5px 8px', textAlign: 'right' }}>₹{printInvoiceData.invoice.part_costs || 0}</td>
-                                    </tr>
-                                    <tr style={{ fontWeight: 'bold', background: '#f0f0f0' }}>
-                                        <td style={{ padding: '8px' }}>TOTAL</td>
-                                        <td style={{ padding: '8px', textAlign: 'right' }}>₹{printInvoiceData.invoice.total || (parseFloat(printInvoiceData.invoice.service_fees || 0) + parseFloat(printInvoiceData.invoice.part_costs || 0))}</td>
-                                    </tr>
-                                </tbody>
-                            </table>
-
-                            <div style={{ textAlign: 'center', fontSize: '10px', color: '#555', borderTop: '1px dashed var(--text-secondary)', paddingTop: '8px', whiteSpace: 'pre-line' }}>
-                                {printConfig.invoiceTerms || 'Your footer terms here.'}
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                <A4PrintModal
+                    isOpen={!!printInvoiceData}
+                    onClose={() => setPrintInvoiceData(null)}
+                    initialDocType="service_report"
+                    job={printInvoiceData.job}
+                    customer={printInvoiceData.customer}
+                    invoice={printInvoiceData.invoice}
+                    config={printConfig}
+                />
             )}
 
         </div>

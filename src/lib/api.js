@@ -138,6 +138,47 @@ export const api = {
         return res.json();
     },
 
+    // ---- INVENTORY ----
+    async getInventory() {
+        const res = await fetch(`${API_URL}/inventory`);
+        if (!res.ok) return [];
+        return res.json();
+    },
+    async createInventoryItem(item) {
+        const res = await fetch(`${API_URL}/inventory`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(item)
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || 'Failed to create inventory item');
+        }
+        return res.json();
+    },
+    async updateInventoryItem(id, item) {
+        const res = await fetch(`${API_URL}/inventory/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(item)
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || 'Failed to update inventory item');
+        }
+        return res.json();
+    },
+    async deleteInventoryItem(id) {
+        const res = await fetch(`${API_URL}/inventory/${id}`, {
+            method: 'DELETE'
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || 'Failed to delete inventory item');
+        }
+        return res.json();
+    },
+
     // ---- DAHSBOARD ----
     async getDashboardStats() {
         const res = await fetch(`${API_URL}/dashboard`);

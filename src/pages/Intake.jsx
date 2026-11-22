@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { api } from '../lib/api'
 import { v4 as uuidv4 } from 'uuid'
 import { useAuth } from '../context/AuthContext'
+import { Printer, X } from 'lucide-react'
 
 export default function Intake() {
     const { user } = useAuth()
@@ -13,6 +15,7 @@ export default function Intake() {
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState(null)
     const [successData, setSuccessData] = useState(null)
+    const [showReceiptModal, setShowReceiptModal] = useState(false)
     const [recentIntakes, setRecentIntakes] = useState([])
     const [customers, setCustomers] = useState([])
     const [matchedCustomers, setMatchedCustomers] = useState([])
@@ -49,6 +52,17 @@ export default function Intake() {
     useEffect(() => {
         fetchRecent()
     }, [])
+
+    useEffect(() => {
+        if (showReceiptModal) {
+            document.body.classList.add('has-print-portal');
+        } else {
+            document.body.classList.remove('has-print-portal');
+        }
+        return () => {
+            document.body.classList.remove('has-print-portal');
+        };
+    }, [showReceiptModal]);
 
     const handleChange = (e) => {
         let value = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
@@ -161,6 +175,7 @@ export default function Intake() {
                 serviceMode: formData.serviceMode,
                 isDeviceIntaken: isIntaken === 1
             })
+            setShowReceiptModal(true)
             setFormData({ name: '', phone: '', email: '', address: '', location: '', itemName: '', brand: '', model: '', serialNo: '', issue: '', csrNumber: '', password: '', accessories: '', serviceMode: 'On Center', isWarranty: false, warrantyDetails: '' })
             setMatchedCustomers([])
             fetchRecent()
@@ -300,54 +315,133 @@ export default function Intake() {
             ) : (
                 <div className="card non-print">
                     <h2 style={{ color: 'var(--success)' }}>Service Request Logged Successfully!</h2>
-                    <p>Request registered for {successData.itemName}.</p>
+                    <p>Request registered for <b>{successData.itemName}</b> (CSR #: <b>{successData.csrNumber}</b>).</p>
                     <div style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem' }}>
-                        <button onClick={() => window.print()}>Print Receipt</button>
-                        <button className="outline" onClick={() => setSuccessData(null)}>Next Request</button>
+                        <button type="button" onClick={() => setShowReceiptModal(true)} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <Printer size={16} /> Print Service Slip (A4)
+                        </button>
+                        <button type="button" className="outline" onClick={() => { setSuccessData(null); setShowReceiptModal(false); }}>
+                            Next Request
+                        </button>
                     </div>
                 </div>
             )}
 
-            {/* Print receipt */}
-            {successData && (
-                <div className="print-receipt" style={{
-                    background: '#fff', color: '#000',
-                    padding: '20px', borderRadius: '0',
-                    fontFamily: "'Courier New', monospace", fontSize: '12px',
-                    width: '100%', margin: '0 auto',
-                }}>
-                    <div style={{ textAlign: 'center', borderBottom: '1px dashed #000', paddingBottom: '12px', marginBottom: '12px' }}>
-                        <div style={{ fontSize: '16px', fontWeight: 'bold' }}>{printConfig.shopName || 'Your Shop Name'}</div>
-                        {printConfig.shopAddress && <div style={{ fontSize: '10px', marginTop: '4px', whiteSpace: 'pre-line' }}>{printConfig.shopAddress}</div>}
-                        {printConfig.shopPhone && <div style={{ fontSize: '10px' }}>Tel: {printConfig.shopPhone}</div>}
-                        {printConfig.shopEmail && <div style={{ fontSize: '10px' }}>{printConfig.shopEmail}</div>}
-                        <div style={{ marginTop: '8px', fontWeight: 'bold' }}>SERVICE REQUEST SLIP</div>
+            {/* Print receipt portal modal */}
+            {successData && showReceiptModal && createPortal(
+                <div className="a4-modal-overlay">
+                    <div className="a4-modal-toolbar non-print">
+                        <span style={{ color: '#94a3b8', fontSize: '0.9rem', fontWeight: 'bold' }}>SERVICE REQUEST SLIP (A4)</span>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                            <button
+                                type="button"
+                                onClick={() => window.print()}
+                                style={{
+                                    background: '#10b981',
+                                    color: '#fff',
+                                    border: 'none',
+                                    padding: '7px 18px',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer',
+                                    fontWeight: 'bold',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px'
+                                }}
+                            >
+                                <Printer size={16} /> Print (A4)
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setShowReceiptModal(false)}
+                                style={{
+                                    background: '#ef4444',
+                                    color: '#fff',
+                                    border: 'none',
+                                    padding: '7px 14px',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer',
+                                    fontWeight: 'bold',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '4px'
+                                }}
+                            >
+                                <X size={16} /> Close
+                            </button>
+                        </div>
                     </div>
 
-                    <div style={{ marginBottom: '10px' }}>
-                        <div><b>Date:</b> {successData.date}</div>
-                        <div style={{ fontSize: '14px', fontWeight: 'bold', marginTop: '4px' }}>CSR #: {successData.csrNumber}</div>
-                    </div>
+                    <div className="a4-print-sheet" style={{ maxWidth: '210mm' }}>
+                        {/* Header */}
+                        <div style={{ borderBottom: '2px solid #111', paddingBottom: '10px', marginBottom: '14px', textAlign: 'center' }}>
+                            <h1 style={{ margin: 0, fontSize: '20px', fontWeight: '800', color: '#111827', textTransform: 'uppercase' }}>
+                                {printConfig.shopName || 'Hypertech Digital'}
+                            </h1>
+                            {printConfig.shopAddress && (
+                                <div style={{ fontSize: '11px', color: '#374151', marginTop: '3px', whiteSpace: 'pre-line' }}>
+                                    {printConfig.shopAddress}
+                                </div>
+                            )}
+                            <div style={{ fontSize: '11px', color: '#374151', marginTop: '3px' }}>
+                                {printConfig.shopPhone && <span><b>Phone:</b> {printConfig.shopPhone} &nbsp;|&nbsp; </span>}
+                                {printConfig.shopEmail && <span><b>Email:</b> {printConfig.shopEmail}</span>}
+                            </div>
+                            <div style={{ marginTop: '10px', display: 'inline-block', background: '#f1f5f9', border: '1px solid #cbd5e1', padding: '4px 12px', borderRadius: '4px', fontWeight: 'bold', fontSize: '13px', letterSpacing: '1px' }}>
+                                SERVICE REQUEST SLIP (RECEIPT)
+                            </div>
+                        </div>
 
-                    <div style={{ borderTop: '1px dashed #000', borderBottom: '1px dashed #000', padding: '8px 0', margin: '8px 0' }}>
-                        <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Customer</div>
-                        <div>{successData.customerName}</div>
-                        {printConfig.showCustomerPhone && <div>Tel: {successData.customerPhone}</div>}
-                        {printConfig.showCustomerEmail && successData.customerEmail && <div>{successData.customerEmail}</div>}
-                    </div>
+                        {/* Metadata Box */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '4px', padding: '10px', marginBottom: '14px', fontSize: '12px' }}>
+                            <div>
+                                <div><b>CSR Tracking #:</b> #{successData.csrNumber}</div>
+                                <div><b>Intake Date & Time:</b> {successData.date}</div>
+                            </div>
+                            <div>
+                                <div><b>Service Mode:</b> {successData.serviceMode}</div>
+                                <div><b>Device Intaken:</b> {successData.isDeviceIntaken ? 'Yes (In-Shop Center)' : 'No (Client Retained)'}</div>
+                            </div>
+                        </div>
 
-                    <div style={{ margin: '8px 0' }}>
-                        <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Device</div>
-                        <div>{successData.itemName}</div>
-                        {printConfig.showSerialNo && <div>S/N: {successData.serialNo}</div>}
-                        {printConfig.showServiceMode && <div>Mode: {successData.serviceMode}</div>}
-                        {printConfig.showDeviceIntaken && <div>Intaken: {successData.isDeviceIntaken ? 'Yes' : 'No'}</div>}
-                    </div>
+                        {/* Customer & Device Dual Box */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
+                            <div style={{ border: '1px solid #cbd5e1', borderRadius: '4px', padding: '10px', fontSize: '12px' }}>
+                                <div style={{ fontWeight: 'bold', borderBottom: '1px solid #e2e8f0', paddingBottom: '4px', marginBottom: '6px' }}>CUSTOMER DETAILS</div>
+                                <div><b>Name:</b> {successData.customerName}</div>
+                                {printConfig.showCustomerPhone && <div><b>Phone:</b> {successData.customerPhone}</div>}
+                                {printConfig.showCustomerEmail && successData.customerEmail && <div><b>Email:</b> {successData.customerEmail}</div>}
+                            </div>
 
-                    <div style={{ borderTop: '1px dashed #000', margin: '10px 0', paddingTop: '8px', fontSize: '10px', textAlign: 'center', whiteSpace: 'pre-line' }}>
-                        {printConfig.intakeTerms || 'Your footer terms here.'}
+                            <div style={{ border: '1px solid #cbd5e1', borderRadius: '4px', padding: '10px', fontSize: '12px' }}>
+                                <div style={{ fontWeight: 'bold', borderBottom: '1px solid #e2e8f0', paddingBottom: '4px', marginBottom: '6px' }}>DEVICE DETAILS</div>
+                                <div><b>Item / Device:</b> {successData.itemName}</div>
+                                {printConfig.showSerialNo && <div><b>Serial Number:</b> {successData.serialNo}</div>}
+                            </div>
+                        </div>
+
+                        {/* Terms */}
+                        <div style={{ borderTop: '1px dashed #94a3b8', paddingTop: '10px', marginBottom: '24px', fontSize: '10.5px', color: '#475569', whiteSpace: 'pre-line', lineHeight: '1.4' }}>
+                            <div style={{ fontWeight: 'bold', color: '#1e293b', marginBottom: '4px' }}>TERMS & CONDITIONS:</div>
+                            {printConfig.intakeTerms || 'By leaving your device, you agree to our standard terms of service.\nNot responsible for data loss.'}
+                        </div>
+
+                        {/* Signatures */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: '30px' }}>
+                            <div style={{ textAlign: 'center', width: '180px' }}>
+                                <div style={{ borderBottom: '1px solid #334155', height: '35px', marginBottom: '4px' }}></div>
+                                <div style={{ fontSize: '11px', fontWeight: '600' }}>Customer Signature</div>
+                            </div>
+
+                            <div style={{ textAlign: 'center', width: '220px' }}>
+                                <div style={{ fontSize: '11px', fontWeight: 'bold', marginBottom: '4px' }}>For {printConfig.shopName || 'Hypertech Digital'}</div>
+                                <div style={{ borderBottom: '1px solid #334155', height: '25px', marginBottom: '4px' }}></div>
+                                <div style={{ fontSize: '11px', fontWeight: '600' }}>Received By / Staff Signature</div>
+                            </div>
+                        </div>
                     </div>
-                </div>
+                </div>,
+                document.getElementById('print-root') || document.body
             )}
         </div>
     )
